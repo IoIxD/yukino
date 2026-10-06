@@ -85,86 +85,6 @@ static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 	return sdl_screenshot(conn, 0, 0, w, h);
 }
 
-/* Works out where the primary display is. */
-static yukino_result_t primary_display_rect(SDL_Rect *bounds, yukino_rect_t *pr)
-{
-	SDL_DisplayID *disp, primary;
-	int count, i;
-	int x0 = INT_MAX, y0 = INT_MAX;
-	float density = 1.0f;
-
-	primary = SDL_GetPrimaryDisplay();
-	if (!primary || !SDL_GetDisplayBounds(primary, bounds))
-		return YUKINO_RESULT_UNSUPPORTED;
-
-	disp = SDL_GetDisplays(&count);
-	if (!disp)
-		return YUKINO_RESULT_UNSUPPORTED;
-
-	/* the desktop origin, and the same density the backends use to size
-	 * the whole-desktop screenshot */
-	for (i = 0; i < count; i++) {
-		const SDL_DisplayMode *mode;
-		SDL_Rect r;
-
-		if (!SDL_GetDisplayBounds(disp[i], &r))
-			continue;
-
-		if (r.x < x0)
-			x0 = r.x;
-		if (r.y < y0)
-			y0 = r.y;
-
-		mode = SDL_GetCurrentDisplayMode(disp[i]);
-		if (mode && mode->pixel_density > density)
-			density = mode->pixel_density;
-	}
-
-	SDL_free(disp);
-
-	pr->x = SDL_lroundf((bounds->x - x0) * density);
-	pr->y = SDL_lroundf((bounds->y - y0) * density);
-	pr->w = SDL_lroundf(bounds->w * density);
-	pr->h = SDL_lroundf(bounds->h * density);
-
-	return YUKINO_RESULT_OK;
-}
-
-/* Takes a screenshot of the primary display */
-static SDL_Surface *sdl_screenshot_primary(
-	yukino_connection_t *conn, SDL_Rect *bounds, yukino_rect_t *pr)
-{
-	const SDL_DisplayMode *mode;
-	SDL_Surface *sur, *scaled;
-	float density = 1.0f;
-	int w, h;
-
-	if (primary_display_rect(bounds, pr) < 0)
-		return NULL;
-
-	sur = sdl_screenshot(conn, pr->x, pr->y, pr->w, pr->h);
-	if (!sur)
-		return NULL;
-
-	/* The screenshot is at the scale of the highest density display, which
-	 * may not be the primary one. Scale it to the primary display's own
-	 * pixel size, so that texture pixels match window pixels. */
-	mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
-	if (mode && mode->pixel_density > 0.0f)
-		density = mode->pixel_density;
-
-	w = SDL_lroundf(bounds->w * density);
-	h = SDL_lroundf(bounds->h * density);
-
-	if (sur->w == w && sur->h == h)
-		return sur;
-
-	scaled = SDL_ScaleSurface(sur, w, h, SDL_SCALEMODE_LINEAR);
-	SDL_DestroySurface(sur);
-
-	return scaled;
-}
-
 /* ------------------------------------------------------------------------ */
 /* save a portion of an SDL_Surface into a .png (or, really anything) file */
 
@@ -369,43 +289,68 @@ static void pixels_to_points(
 	out->h = in->h / density;
 }
 
-static int get_num_displays(void)
+static int get_desktop_res(SDL_Rect *prect)
 {
 	SDL_DisplayID *disp;
-	int r;
+	int i, r;
+	int32_t x0, x1, y0, y1;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
 		return -1;
 
-	free(disp);
+	x0 = y0 = INT32_MAX;
+	x1 = y1 = INT32_MIN;
+	for (i = 0; i < r; i++) {
+		SDL_Rect rect;
+		if (!SDL_GetDisplayBounds(disp[i], &rect))
+			continue;
+		if (x0 > rect.x) x0 = rect.x;
+		if (x1 < (rect.x + rect.w)) x1 = (rect.x + rect.w);
+		if (y0 > rect.y) y0 = rect.y;
+		if (y1 < (rect.y + rect.h)) y1 = (rect.y + rect.h);
+	}
+
+	prect->x = x0;
+	prect->y = y0;
+	prect->w = x1 - x0;
+	prect->h = y1 - y0;
+
+	SDL_free(disp);
 	return r;
 }
+
+/* don't turn this off, the surface impl is borked */
+#define SDL_USE_RENDERER 1
 
 int main(int argc, char *argv[])
 {
 	SDL_Surface *sur;
-	SDL_Texture *tex;
 	SDL_Window *win;
+#ifdef SDL_USE_RENDERER
 	SDL_Renderer *ren;
+	SDL_Texture *tex;
+#else
+	SDL_Surface *winsur;
+#endif
 	SDL_Event ev;
 	SDL_Cursor *cur;
 	SDL_FRect sel;
+	SDL_FRect outsel;
+	SDL_Rect desk_res;
 	/* Mouse down, drag */
 	enum { POINTS_DOWN, POINTS_DRAG, POINTS_MAX_ };
 	SDL_FPoint points[POINTS_MAX_];
 	int down = 0, drag = 0;
 	char *file = NULL; /* output file */
 	int opt;
+	int num_disp;
 	static struct option long_opts[] = {
 		{"output", required_argument, 0, 'o'},
 		{0},
 	};
 	int esc = 0;
 	float density;
-	bool under_wayland = (getenv("WAYLAND_DISPLAY") != NULL);
-	SDL_Rect mon_bounds;
-	yukino_rect_t mon;
 
 	/* parse command line opts */
 	while ((opt = getopt_long(argc, argv, "o:", long_opts, NULL)) != -1) {
@@ -423,6 +368,8 @@ int main(int argc, char *argv[])
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
 
+	num_disp = get_desktop_res(&desk_res);
+
 	{
 		yukino_connection_t *conn;
 
@@ -435,11 +382,7 @@ int main(int argc, char *argv[])
 
 		windows_fill(conn);
 
-		if (under_wayland) {
-			sur = sdl_screenshot_primary(conn, &mon_bounds, &mon);
-		} else {
-			sur = sdl_screenshot_display(conn);
-		}
+		sur = sdl_screenshot_display(conn);
 
 		yukino_unlock(conn);
 
@@ -453,9 +396,9 @@ int main(int argc, char *argv[])
 		SDL_PropertiesID props = SDL_CreateProperties();
 
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, sur->h);
+			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, sur->w);
+			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, desk_res.w);
 		SDL_SetBooleanProperty(
 			props, SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, true);
 		SDL_SetBooleanProperty(props,
@@ -466,9 +409,11 @@ int main(int argc, char *argv[])
 			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
 			true);
 		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER,
-			under_wayland ? mon_bounds.x : 0);
+			desk_res.x);
 		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER,
-			under_wayland ? mon_bounds.y : 0);
+			desk_res.y);
+		SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_UTILITY_BOOLEAN,
+			true);
 
 		/* On MATE, if there is only one display, the top bar will push
 		 * the window down. Bypass that by setting the window to
@@ -476,12 +421,8 @@ int main(int argc, char *argv[])
 		 *
 		 * We explicitly DON'T do this for multi-display desktops,
 		 * because that ends up having the window on only one display,
-		 * which is Not What We Want
-		 *
-		 * we also do this on wayland where we only work with the
-		 * primary display
-		 * */
-		if (under_wayland || get_num_displays() == 1) {
+		 * which is Not What We Want */
+		if (num_disp == 1) {
 			SDL_SetBooleanProperty(props,
 				SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,
 				true);
@@ -495,14 +436,18 @@ int main(int argc, char *argv[])
 	if (!win)
 		goto end;
 
+#ifdef SDL_USE_RENDERER
 	ren = SDL_CreateRenderer(win, NULL);
-
 	if (!ren)
 		goto end;
+	tex = SDL_CreateTextureFromSurface(ren, sur);
+#else
+	winsur = SDL_GetWindowSurface(win);
+	if (!winsur)
+		goto end;
+#endif
 
 	density = SDL_GetWindowPixelDensity(win);
-
-	tex = SDL_CreateTextureFromSurface(ren, sur);
 
 	cur = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
 	SDL_SetCursor(cur);
@@ -511,41 +456,34 @@ int main(int argc, char *argv[])
 		float mx, my;
 		yukino_rect_t w;
 		int query = 0;
+		SDL_FRect *psel;
 
 		SDL_GetMouseState(&mx, &my);
 
-		/* ugh */
+		/* FIXME wayland doesn't work this way */
 		mx *= density;
 		my *= density;
 
-		if (under_wayland) {
-			query = windows_query_at_point(
-				mx + mon.x, my + mon.y, &w);
-		} else {
-			query = windows_query_at_point(mx, my, &w);
-		}
+		query = windows_query_at_point(mx, my, &w);
 
 		/* Adjust selection */
 		if (drag) {
 			/* Lol wow SDL has a function for this */
 			SDL_GetRectEnclosingPointsFloat(
 				points, POINTS_MAX_, NULL, &sel);
+			memcpy(&outsel, &sel, sizeof(SDL_FRect));
 		} else if (query == YUKINO_RESULT_OK) {
-			w.x -= mon.x;
-			w.y -= mon.y;
+			/* This is not right (sometimes...) */
 			pixels_to_points(&sel, &w, density);
+			memcpy(&outsel, &sel, sizeof(SDL_FRect));
 		} else {
-			/* Otherwise the "selection" is the window beneath the
-			 * cursor. */
+			/* Otherwise the "selection" is the whole display */
 			sel.x = sel.y = 0;
-			sel.w = sur->w / density;
-			sel.h = sur->h / density;
+			sel.w = sur->w;
+			sel.h = sur->h;
 		}
 
-		/* crop any out-of-bounds selections (can happen if a window is
-		 * partially offscreen) */
-		fixup(&sel, sur);
-
+#ifdef SDL_USE_RENDERER
 		/* now we begin our blitting journey */
 		SDL_RenderClear(ren);
 
@@ -556,9 +494,20 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, NULL, NULL);
 
 		SDL_SetTextureColorMod(tex, 255, 255, 255);
-		SDL_RenderTexture(ren, tex, &sel, &sel);
+		SDL_RenderTexture(ren, tex, &outsel, &outsel);
 
 		SDL_RenderPresent(ren);
+#else
+		if (SDL_MUSTLOCK(winsur))
+			SDL_LockSurface(winsur);
+
+		SDL_BlitSurface(sur, NULL, winsur, NULL);
+
+		if (SDL_MUSTLOCK(winsur))
+			SDL_UnlockSurface(winsur);
+
+		SDL_UpdateWindowSurface(win);
+#endif
 
 		/* When we create our window, it's hidden, to avoid showing a
 		 * huge blank window on startup. Now we want to show the window
@@ -592,8 +541,10 @@ out:
 	 * So, take what we have, and shove it into the png writer */
 
 	/* No longer need any of this */
+#ifdef SDL_USE_RENDERER
 	SDL_DestroyTexture(tex);
 	SDL_DestroyRenderer(ren);
+#endif
 	SDL_DestroyWindow(win);
 	SDL_DestroyCursor(cur);
 

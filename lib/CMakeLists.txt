@@ -23,6 +23,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(XCB xcb)
 pkg_check_modules(ZLIB zlib)
 pkg_check_modules(GIO gio-2.0)
+pkg_check_modules(WAYLAND wayland-client)
+find_program(WAYLAND_SCANNER wayland-scanner)
 
 # Make these empty for now
 set(LIBRARIES "")
@@ -44,7 +46,7 @@ if(ZLIB_FOUND)
   list(APPEND DEFINES "-DYUKINO_ZLIB=1")
 endif()
 
-if(GIO_FOUND)
+if(GIO_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
   find_program(GDBUS_CODEGEN gdbus-codegen REQUIRED)
 
   set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
@@ -52,7 +54,7 @@ if(GIO_FOUND)
 
   function(gen_iface iface)
     message(STATUS "generating ${GEN_DIR}/${iface}.c")
-    add_custom_target(${iface}
+    add_custom_command(
       OUTPUT ${GEN_DIR}/${iface}.c ${GEN_DIR}/${iface}.h
       COMMAND ${GDBUS_CODEGEN}
               --generate-c-code ${GEN_DIR}/${iface}
@@ -64,12 +66,26 @@ if(GIO_FOUND)
     set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
   endfunction()
 
+  function(gen_protocol status protocol)
+    message(STATUS "generating ${GEN_DIR}/${protocol}.c")
+    add_custom_command(
+        OUTPUT ${GEN_DIR}/${protocol}.c ${GEN_DIR}/${protocol}.h
+        COMMAND ${WAYLAND_SCANNER} client-header /usr/share/wayland-protocols/${status}/${protocol}.xml ${GEN_DIR}/${protocol}.h
+        COMMAND ${WAYLAND_SCANNER} private-code /usr/share/wayland-protocols/${status}/${protocol}.xml ${GEN_DIR}/${protocol}.c
+        DEPENDS /usr/share/wayland-protocols/${status}/${protocol}.xml
+        VERBATIM
+    )
+    list(APPEND SRC_FILES "${GEN_DIR}/${protocol}.c" "${GEN_DIR}/${protocol}.h")
+    set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
+  endfunction()
+
   gen_iface(org.freedesktop.portal.Screenshot)
   gen_iface(org.freedesktop.portal.Request)
+  gen_protocol(unstable/xdg-output xdg-output-unstable-v1)
 
-  list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES})
+  list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES} ${WAYLAND_LINK_LIBRARIES})
   list(APPEND LIBRARIES m)
-  list(APPEND INCLUDE ${GIO_INCLUDE_DIRS})
+  list(APPEND INCLUDE ${GIO_INCLUDE_DIRS} ${WAYLAND_INCLUDE_DIRS})
   list(APPEND INCLUDE ${GEN_DIR})
   list(APPEND DEFINES "-DYUKINO_GIO=1")
   list(APPEND SRC_FILES sys/gio.c)

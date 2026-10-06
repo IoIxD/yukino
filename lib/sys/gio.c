@@ -22,9 +22,11 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <wayland-client.h>
 
 #include <org.freedesktop.portal.Request.h>
 #include <org.freedesktop.portal.Screenshot.h>
+#include <xdg-output-unstable-v1.h>
 
 #include <SDL3/SDL.h>
 
@@ -33,6 +35,8 @@
 
 /* Define data specific to this connection */
 struct yukino_connection_data {
+	struct wl_display *display;
+
 	int has_perms;
 	OrgFreedesktopPortalScreenshot *screenshot_proxy;
 	GError *error;
@@ -49,6 +53,219 @@ struct yukino_connection_data {
 #define YUKINO_CONNECTION_DATA 1
 #include "../yukino_c.h"
 
+struct display_r {
+	yukino_rect_t pixel;
+	yukino_rect_t logical;
+	unsigned int has_logical_position : 1;
+	unsigned int has_logical_size : 1;
+};
+
+struct display_data {
+	struct display_r **monitors;
+	size_t monitors_size;
+	struct zxdg_output_manager_v1 *om;
+};
+
+static void handle_xdg_output_logical_position(void *data, struct zxdg_output_v1 *xdg_output, int32_t x, int32_t y)
+{
+	struct display_r *d = data;
+
+	d->logical.x = x;
+	d->logical.y = y;
+	d->has_logical_position = true;
+}
+
+static void handle_xdg_output_logical_size(void *data, struct zxdg_output_v1 *xdg_output, int32_t width, int32_t height)
+{
+	struct display_r *d = data;
+
+	d->logical.w = width;
+	d->logical.h = height;
+	d->has_logical_size = true;
+}
+
+static void handle_xdg_output_done(void *data, struct zxdg_output_v1 *xdg_output)
+{
+}
+
+static void handle_xdg_output_name(void *data, struct zxdg_output_v1 *xdg_output, const char *name)
+{
+}
+
+static void handle_xdg_output_description(void *data, struct zxdg_output_v1 *xdg_output, const char *description)
+{
+}
+
+static const struct zxdg_output_v1_listener xdg_output_listener = {
+	handle_xdg_output_logical_position,
+	handle_xdg_output_logical_size,
+	handle_xdg_output_done,
+	handle_xdg_output_name,
+	handle_xdg_output_description,
+};
+
+// Callback when a monitor sends its geometry data
+static void output_handle_geometry(void *data, struct wl_output *wl_output,
+	int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
+	int32_t subpixel, const char *make, const char *model,
+	int32_t transform)
+{
+	struct display_r *r = data;
+
+	r->pixel.x = x;
+	r->pixel.y = y;
+}
+
+// Callback when a monitor sends its resolution modes
+static void output_handle_mode(void *data, struct wl_output *wl_output,
+	uint32_t flags, int32_t width, int32_t height, int32_t refresh)
+{
+	struct display_r *r;
+
+	// We look for the current active resolution mode
+	if (!(flags & WL_OUTPUT_MODE_CURRENT))
+		return;
+
+	r = data;
+	r->pixel.w = width;
+	r->pixel.h = height;
+}
+
+static void output_handle_done(void *data, struct wl_output *wl_output)
+{
+}
+
+static void output_handle_scale(
+	void *data, struct wl_output *wl_output, int32_t factor)
+{
+}
+
+// Wire up the wl_output listener
+static const struct wl_output_listener output_listener = {
+	.geometry = output_handle_geometry,
+	.mode = output_handle_mode,
+	.done = output_handle_done,
+	.scale = output_handle_scale,
+};
+
+// Callback to handle global interface registry additions
+static void registry_handle_global(void *data, struct wl_registry *registry,
+	uint32_t id, const char *interface, uint32_t version)
+{
+	struct display_data *state = data;
+
+	if (strcmp(interface, "wl_output") == 0) {
+		state->monitors = realloc(state->monitors, sizeof(struct display_r *) * (state->monitors_size + 1));
+		state->monitors[state->monitors_size] = calloc(1, sizeof(struct display_r));
+
+		struct wl_output *output = wl_registry_bind(registry, id, &wl_output_interface, 1);
+		wl_output_add_listener(output, &output_listener, state->monitors[state->monitors_size]);
+
+		struct zxdg_output_v1 *xdg_output = zxdg_output_manager_v1_get_xdg_output(state->om, output);
+		zxdg_output_v1_add_listener(xdg_output, &xdg_output_listener, state->monitors[state->monitors_size]);
+
+		state->monitors_size++;
+	} else if (SDL_strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
+		if (version > 3) version = 3;
+		state->om = wl_registry_bind(registry, id, &zxdg_output_manager_v1_interface, version);
+	}
+}
+
+static void registry_handle_global_remove(
+	void *data, struct wl_registry *registry, uint32_t id)
+{
+}
+
+static const struct wl_registry_listener registry_listener = {
+	.global = registry_handle_global,
+	.global_remove = registry_handle_global_remove,
+};
+
+/* for qsort */
+#define CMP(XY, WH) \
+	static int cmp_##XY(const void *a_, const void *b_) \
+	{ \
+		const struct display_r *a = *(void **)a_, *b = *(void **)b_; \
+		return (a->logical.XY > b->logical.XY) ? 1 : (a->logical.XY < b->logical.XY) ? -1 : 0; \
+	} \
+	static void fixup_pixel_coordinates_##XY(struct display_data *pdd /* p diddy */) \
+	{ \
+		size_t i, j; \
+		/* First of all, sort them by x coordinate */ \
+		qsort(pdd->monitors, pdd->monitors_size, sizeof(struct display_r *), cmp_##XY); \
+		/* Fix all the shit */ \
+		for (i = 0; i < pdd->monitors_size; i++) \
+			for (j = i+1; j < pdd->monitors_size; j++) \
+				pdd->monitors[j]->pixel.XY = pdd->monitors[j]->pixel.XY + pdd->monitors[i]->pixel.WH - pdd->monitors[i]->logical.WH; \
+	}
+CMP(x,w)
+CMP(y,h)
+#undef CMP
+static void fixup_pixel_coordinates(struct display_data *pdd)
+{
+	fixup_pixel_coordinates_x(pdd);
+	fixup_pixel_coordinates_y(pdd);
+}
+
+static yukino_result_t yukino_gio_display_resolution(
+	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
+{
+	struct display_data dd;
+	int32_t minx, miny, maxx, maxy;
+	size_t i;
+
+	memset(&dd, 0, sizeof(dd));
+
+	{
+		struct wl_registry *registry = wl_display_get_registry(conn->conn_data.display);
+		wl_registry_add_listener(registry, &registry_listener, &dd);
+
+		wl_display_roundtrip(conn->conn_data.display);
+		wl_display_roundtrip(conn->conn_data.display);
+
+		wl_registry_destroy(registry);
+	}
+
+	if (dd.monitors_size == 0)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	// 4. Calculate total desktop dimensions based on individual geometries
+	minx = miny = maxx = maxy = 0;
+
+	fixup_pixel_coordinates(&dd);
+
+	for (i = 0; i < dd.monitors_size; i++) {
+		struct display_r *m = dd.monitors[i];
+		int32_t x, y, w, h;
+
+		x = m->pixel.x;
+		y = m->pixel.y;
+		w = m->pixel.w;
+		h = m->pixel.h;
+
+		if (x < minx)
+			minx = x;
+		if (y < miny)
+			miny = y;
+		if ((x + w) > maxx)
+			maxx = x + w;
+		if ((y + h) > maxy)
+			maxy = y + h;
+
+		free(m);
+	}
+	free(dd.monitors);
+
+	int32_t total_width = maxx - minx;
+	int32_t total_height = maxy - miny;
+
+	*w = total_width;
+	*h = total_height;
+
+	return YUKINO_RESULT_OK;
+}
+
+/* FIXME move all of this shit out of here. it does not belong here */
 static void on_response(GDBusConnection *conn, const gchar *sender,
 	const gchar *path, const gchar *iface, const gchar *signal,
 	GVariant *params, gpointer user_data)
@@ -61,45 +278,40 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 	g_variant_get(params, "(u@a{sv})", &response, &results);
 
 	if (response == 0 && g_variant_lookup(results, "uri", "&s", &uri)) {
+		uint8_t *full_img = NULL;
+
+		/* FIXME decode URI (maybe glib can do this) */
 		const char *path = g_strdup(uri);
 		if (strncmp(path, "file://", 7) == 0)
 			path += 7;
 
 		int w = 0, h = 0, channels = 0;
-		uint8_t *full_img = stbi_load(path, &w, &h, &channels, 4);
+		full_img = stbi_load(path, &w, &h, &channels, 4);
 		unlink(path);
 
+		if (w < data->temp_pixel_func_w)
+			goto done;
+		if (h < data->temp_pixel_func_h)
+			goto done;
+
+		const uint8_t *pxl = full_img;
+		pxl += data->temp_pixel_func_x * 4;
+		pxl += data->temp_pixel_func_y * w * 4;
 		for (int y = 0; y < data->temp_pixel_func_h; y++) {
 			for (int x = 0; x < data->temp_pixel_func_w; x++) {
 				yukino_result_t r;
-				unsigned char rgb[3] = {0, 0, 0};
-
-				/* the portal always gives us the whole
-				 * desktop, so crop out the requested area */
-				int ix = data->temp_pixel_func_x + x;
-				int iy = data->temp_pixel_func_y + y;
-
-				if (full_img && ix >= 0 && iy >= 0 && ix < w
-					&& iy < h) {
-					const uint8_t *pxl
-						= &full_img[((size_t)iy * w
-								    + ix)
-							    * 4];
-					rgb[0] = pxl[0];
-					rgb[1] = pxl[1];
-					rgb[2] = pxl[2];
-				}
 
 				r = data->temp_pixel_func(
-					data->temp_pixel_func_data, rgb);
+					data->temp_pixel_func_data,
+					pxl + (x * 4));
 				if (r < 0)
 					goto done;
 			}
+			pxl += w * 4;
 		}
+
 	done:
-
-		printf("%s\n", path);
-
+		free(full_img);
 	} else {
 		g_print("Screenshot failed/cancelled (response=%u)\n",
 			response);
@@ -110,49 +322,8 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 
 static yukino_result_t yukino_gio_disconnect(yukino_connection_t *conn)
 {
-	return YUKINO_RESULT_OK;
-}
-
-static yukino_result_t yukino_gio_display_resolution(
-	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
-{
-	int count = 1;
-	SDL_DisplayID di = SDL_GetPrimaryDisplay();
-	SDL_DisplayID *disp = &di;
-	int x0 = INT_MAX, y0 = INT_MAX, x1 = INT_MIN, y1 = INT_MIN;
-	float density = 1.0f;
-
-	if (!disp)
-		return YUKINO_RESULT_UNSUPPORTED;
-
-	for (int i = 0; i < count; i++) {
-
-		const SDL_DisplayMode *mode;
-		SDL_Rect r;
-
-		if (!SDL_GetDisplayBounds(disp[i], &r))
-			return YUKINO_RESULT_UNSUPPORTED;
-
-		if (r.x < x0)
-			x0 = r.x;
-		if (r.y < y0)
-			y0 = r.y;
-		if (r.x + r.w > x1)
-			x1 = r.x + r.w;
-		if (r.y + r.h > y1)
-			y1 = r.y + r.h;
-
-		mode = SDL_GetCurrentDisplayMode(disp[i]);
-		if (mode && mode->pixel_density > density)
-			density = mode->pixel_density;
-	}
-
-	if (x1 <= x0 || y1 <= y0)
-		return YUKINO_RESULT_UNSUPPORTED;
-
-	*w = SDL_lroundf((x1 - x0) * density);
-	*h = SDL_lroundf((y1 - y0) * density);
-
+	wl_display_disconnect(conn->conn_data.display);
+	free(conn);
 	return YUKINO_RESULT_OK;
 }
 
@@ -227,6 +398,10 @@ yukino_result_t yukino_gio_connect(yukino_connection_t **pconn)
 	conn = malloc(sizeof(*conn));
 	if (!conn)
 		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	conn->conn_data.display = wl_display_connect(NULL);
+	if (!conn->conn_data.display)
+		return YUKINO_RESULT_UNSUPPORTED;
 
 	conn->conn_data.loop = g_main_loop_new(NULL, FALSE);
 	conn->conn_data.error = NULL;
