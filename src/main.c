@@ -21,6 +21,7 @@
 
 #include "yukino.h"
 
+#include <limits.h>
 #include <stdio.h>
 
 #include <getopt.h>
@@ -82,6 +83,86 @@ static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 		return NULL;
 
 	return sdl_screenshot(conn, 0, 0, w, h);
+}
+
+/* Works out where the primary display is. */
+static yukino_result_t primary_display_rect(SDL_Rect *bounds, yukino_rect_t *pr)
+{
+	SDL_DisplayID *disp, primary;
+	int count, i;
+	int x0 = INT_MAX, y0 = INT_MAX;
+	float density = 1.0f;
+
+	primary = SDL_GetPrimaryDisplay();
+	if (!primary || !SDL_GetDisplayBounds(primary, bounds))
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	disp = SDL_GetDisplays(&count);
+	if (!disp)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	/* the desktop origin, and the same density the backends use to size
+	 * the whole-desktop screenshot */
+	for (i = 0; i < count; i++) {
+		const SDL_DisplayMode *mode;
+		SDL_Rect r;
+
+		if (!SDL_GetDisplayBounds(disp[i], &r))
+			continue;
+
+		if (r.x < x0)
+			x0 = r.x;
+		if (r.y < y0)
+			y0 = r.y;
+
+		mode = SDL_GetCurrentDisplayMode(disp[i]);
+		if (mode && mode->pixel_density > density)
+			density = mode->pixel_density;
+	}
+
+	SDL_free(disp);
+
+	pr->x = SDL_lroundf((bounds->x - x0) * density);
+	pr->y = SDL_lroundf((bounds->y - y0) * density);
+	pr->w = SDL_lroundf(bounds->w * density);
+	pr->h = SDL_lroundf(bounds->h * density);
+
+	return YUKINO_RESULT_OK;
+}
+
+/* Takes a screenshot of the primary display */
+static SDL_Surface *sdl_screenshot_primary(
+	yukino_connection_t *conn, SDL_Rect *bounds, yukino_rect_t *pr)
+{
+	const SDL_DisplayMode *mode;
+	SDL_Surface *sur, *scaled;
+	float density = 1.0f;
+	int w, h;
+
+	if (primary_display_rect(bounds, pr) < 0)
+		return NULL;
+
+	sur = sdl_screenshot(conn, pr->x, pr->y, pr->w, pr->h);
+	if (!sur)
+		return NULL;
+
+	/* The screenshot is at the scale of the highest density display, which
+	 * may not be the primary one. Scale it to the primary display's own
+	 * pixel size, so that texture pixels match window pixels. */
+	mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
+	if (mode && mode->pixel_density > 0.0f)
+		density = mode->pixel_density;
+
+	w = SDL_lroundf(bounds->w * density);
+	h = SDL_lroundf(bounds->h * density);
+
+	if (sur->w == w && sur->h == h)
+		return sur;
+
+	scaled = SDL_ScaleSurface(sur, w, h, SDL_SCALEMODE_LINEAR);
+	SDL_DestroySurface(sur);
+
+	return scaled;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -311,11 +392,7 @@ int main(int argc, char *argv[])
 	SDL_Cursor *cur;
 	SDL_FRect sel;
 	/* Mouse down, drag */
-	enum {
-		POINTS_DOWN,
-		POINTS_DRAG,
-		POINTS_MAX_
-	};
+	enum { POINTS_DOWN, POINTS_DRAG, POINTS_MAX_ };
 	SDL_FPoint points[POINTS_MAX_];
 	int down = 0, drag = 0;
 	char *file = NULL; /* output file */
@@ -326,6 +403,9 @@ int main(int argc, char *argv[])
 	};
 	int esc = 0;
 	float density;
+	bool under_wayland = (getenv("WAYLAND_DISPLAY") != NULL);
+	SDL_Rect mon_bounds;
+	yukino_rect_t mon;
 
 	/* parse command line opts */
 	while ((opt = getopt_long(argc, argv, "o:", long_opts, NULL)) != -1) {
@@ -355,7 +435,11 @@ int main(int argc, char *argv[])
 
 		windows_fill(conn);
 
-		sur = sdl_screenshot_display(conn);
+		if (under_wayland) {
+			sur = sdl_screenshot_primary(conn, &mon_bounds, &mon);
+		} else {
+			sur = sdl_screenshot_display(conn);
+		}
 
 		yukino_unlock(conn);
 
@@ -381,10 +465,10 @@ int main(int argc, char *argv[])
 		SDL_SetBooleanProperty(props,
 			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
 			true);
-		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_X_NUMBER, 0);
-		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, 0);
+		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER,
+			under_wayland ? mon_bounds.x : 0);
+		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER,
+			under_wayland ? mon_bounds.y : 0);
 
 		/* On MATE, if there is only one display, the top bar will push
 		 * the window down. Bypass that by setting the window to
@@ -392,8 +476,12 @@ int main(int argc, char *argv[])
 		 *
 		 * We explicitly DON'T do this for multi-display desktops,
 		 * because that ends up having the window on only one display,
-		 * which is Not What We Want */
-		if (get_num_displays() == 1) {
+		 * which is Not What We Want
+		 *
+		 * we also do this on wayland where we only work with the
+		 * primary display
+		 * */
+		if (under_wayland || get_num_displays() == 1) {
 			SDL_SetBooleanProperty(props,
 				SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,
 				true);
@@ -422,6 +510,7 @@ int main(int argc, char *argv[])
 	do {
 		float mx, my;
 		yukino_rect_t w;
+		int query = 0;
 
 		SDL_GetMouseState(&mx, &my);
 
@@ -429,13 +518,21 @@ int main(int argc, char *argv[])
 		mx *= density;
 		my *= density;
 
+		if (under_wayland) {
+			query = windows_query_at_point(
+				mx + mon.x, my + mon.y, &w);
+		} else {
+			query = windows_query_at_point(mx, my, &w);
+		}
+
 		/* Adjust selection */
 		if (drag) {
 			/* Lol wow SDL has a function for this */
 			SDL_GetRectEnclosingPointsFloat(
 				points, POINTS_MAX_, NULL, &sel);
-		} else if (windows_query_at_point(mx, my, &w)
-			   == YUKINO_RESULT_OK) {
+		} else if (query == YUKINO_RESULT_OK) {
+			w.x -= mon.x;
+			w.y -= mon.y;
 			pixels_to_points(&sel, &w, density);
 		} else {
 			/* Otherwise the "selection" is the window beneath the
@@ -486,8 +583,7 @@ int main(int argc, char *argv[])
 				goto out;
 			}
 			break;
-		case SDL_EVENT_MOUSE_BUTTON_UP:
-			goto out;
+		case SDL_EVENT_MOUSE_BUTTON_UP: goto out;
 		}
 	} while (SDL_WaitEvent(&ev));
 

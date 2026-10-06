@@ -109,6 +109,11 @@ uint32_t yukino_adler32_get(struct yukino_adler32 *a32);
 yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn);
 #endif
 
+#ifdef YUKINO_GIO
+/* initializes a connection */
+yukino_result_t yukino_gio_connect(yukino_connection_t **pconn);
+#endif
+
 YUKINO_INLINE unsigned int yukino_ctz32(uint32_t x)
 {
 #ifdef __GNUC__
@@ -116,7 +121,8 @@ YUKINO_INLINE unsigned int yukino_ctz32(uint32_t x)
 #else
 	unsigned int i;
 
-	if (!x) return 32;
+	if (!x)
+		return 32;
 
 	for (i = 0; !(x & 1); x >>= 1, i++)
 		;

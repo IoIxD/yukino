@@ -24,6 +24,11 @@ yukino_result_t yukino_connect(yukino_connection_t **pconn)
 	if (!pconn)
 		return YUKINO_RESULT_INVALID_PARAM;
 
+#ifdef YUKINO_GIO
+	if (yukino_gio_connect(pconn) == YUKINO_RESULT_OK)
+		return YUKINO_RESULT_OK;
+#endif
+
 #ifdef YUKINO_XCB
 	if (yukino_xcb_connect(pconn) == YUKINO_RESULT_OK)
 		return YUKINO_RESULT_OK;
