@@ -273,7 +273,9 @@ static yukino_result_t yukino_gio_display_resolution(
 			y = m->logical.y;
 			w = m->logical.w;
 			h = m->logical.h;
-		} else {
+		} else
+		//
+		{
 			x = m->pixel.x;
 			y = m->pixel.y;
 			w = m->pixel.w;

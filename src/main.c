@@ -78,7 +78,8 @@ static SDL_Surface *sdl_screenshot(yukino_connection_t *conn, uint32_t x,
 }
 
 /* Takes a screenshot of the whole display */
-static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
+static SDL_Surface *sdl_screenshot_display(
+	yukino_connection_t *conn, float biggest_scale)
 {
 	yukino_result_t r;
 	uint32_t w, h;
@@ -86,7 +87,7 @@ static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 	if ((r = yukino_display_resolution(conn, &w, &h)) < 0)
 		return NULL;
 
-	return sdl_screenshot(conn, 0, 0, w, h);
+	return sdl_screenshot(conn, 0, 0, w * biggest_scale, h * biggest_scale);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -296,10 +297,10 @@ static void pixels_to_points(
 static int get_desktop_res(SDL_Rect *prect, float *scale)
 {
 	SDL_DisplayID *disp;
-	SDL_DisplayID disp_leftmost = 0;
-	int i, r, disp_leftmost_set = 0;
+	SDL_DisplayID disp_biggest = 0;
+	int i, r, disp_biggest_set = 0;
 	int32_t x0, x1, y0, y1;
-	const SDL_DisplayMode *mode;
+	float s = 1.5;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
@@ -308,29 +309,19 @@ static int get_desktop_res(SDL_Rect *prect, float *scale)
 	x0 = y0 = INT32_MAX;
 	x1 = y1 = INT32_MIN;
 
-	/* get the leftmost monitor */
+	/* get the monitor with the biggest scale */
 	for (i = 0; i < r; i++) {
 		SDL_Rect rect;
+		const SDL_DisplayMode *mode = NULL;
 
-		if (!SDL_GetDisplayBounds(disp[i], &rect))
-			continue;
+		/* and get the scale of it */
+		mode = SDL_GetDesktopDisplayMode(disp[i]);
 
-		if (!disp_leftmost_set) {
-			disp_leftmost = disp[i];
-			disp_leftmost_set = 1;
-		} else {
-			SDL_Rect rect2;
-			SDL_GetDisplayBounds(disp_leftmost, &rect2);
-			/* on my machine the monitor x goes right->left? so
-			 * highest is leftmost? */
-			if (rect2.x > rect.x) {
-				disp_leftmost = disp[i];
+		if (mode)
+			if (mode->pixel_density >= s) {
+				s = mode->pixel_density;
 			}
-		}
 	}
-
-	/* and get the scale of it */
-	mode = SDL_GetDesktopDisplayMode(disp_leftmost);
 
 	for (i = 0; i < r; i++) {
 		SDL_Rect rect;
@@ -353,7 +344,7 @@ static int get_desktop_res(SDL_Rect *prect, float *scale)
 	prect->w = x1 - x0;
 	prect->h = y1 - y0;
 
-	*scale = mode->pixel_density;
+	*scale = s;
 
 	SDL_free(disp);
 	return r;
@@ -384,7 +375,7 @@ int main(int argc, char *argv[])
 	char *file = NULL; /* output file */
 	int opt;
 	int num_disp;
-	float leftmost_scale;
+	float biggest_scale;
 	static struct option long_opts[] = {
 		{"output", required_argument, 0, 'o'},
 		{0},
@@ -411,9 +402,9 @@ int main(int argc, char *argv[])
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
 
-	num_disp = get_desktop_res(&desk_res, &leftmost_scale);
+	num_disp = get_desktop_res(&desk_res, &biggest_scale);
 
-	printf("leftmost_scale %0.2f\n", leftmost_scale);
+	printf("biggest_scale %0.2f\n", biggest_scale);
 
 	{
 		yukino_connection_t *conn;
@@ -427,7 +418,7 @@ int main(int argc, char *argv[])
 
 		windows_fill(conn);
 
-		sur = sdl_screenshot_display(conn);
+		sur = sdl_screenshot_display(conn, biggest_scale);
 
 		yukino_unlock(conn);
 
