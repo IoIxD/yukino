@@ -29,11 +29,11 @@ AlignArrayOfStructures: Left
 AlignEscapedNewlines: DontAlign
 AlignConsecutiveMacros: true
 
-AllowShortIfStatementsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: true
 AllowShortBlocksOnASingleLine: Empty
-AllowShortEnumsOnASingleLine: false
+AllowShortEnumsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: InlineOnly
-AllowShortCaseLabelsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
 
 QualifierAlignment: Left
 
