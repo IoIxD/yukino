@@ -21,6 +21,10 @@
 
 #include "yukino.h"
 
+#ifdef YUKINO_LAYER_SHELL
+# include "layer_shell.h"
+#endif
+
 #include <limits.h>
 #include <stdio.h>
 
@@ -289,11 +293,13 @@ static void pixels_to_points(
 	out->h = in->h / density;
 }
 
-static int get_desktop_res(SDL_Rect *prect)
+static int get_desktop_res(SDL_Rect *prect, float *scale)
 {
 	SDL_DisplayID *disp;
-	int i, r;
+	SDL_DisplayID disp_leftmost = 0;
+	int i, r, disp_leftmost_set = 0;
 	int32_t x0, x1, y0, y1;
+	const SDL_DisplayMode *mode;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
@@ -301,10 +307,37 @@ static int get_desktop_res(SDL_Rect *prect)
 
 	x0 = y0 = INT32_MAX;
 	x1 = y1 = INT32_MIN;
+
+	/* get the leftmost monitor */
 	for (i = 0; i < r; i++) {
 		SDL_Rect rect;
+
 		if (!SDL_GetDisplayBounds(disp[i], &rect))
 			continue;
+
+		if (!disp_leftmost_set) {
+			disp_leftmost = disp[i];
+			disp_leftmost_set = 1;
+		} else {
+			SDL_Rect rect2;
+			SDL_GetDisplayBounds(disp_leftmost, &rect2);
+			/* on my machine the monitor x goes right->left? so
+			 * highest is leftmost? */
+			if (rect2.x > rect.x) {
+				disp_leftmost = disp[i];
+			}
+		}
+	}
+
+	/* and get the scale of it */
+	mode = SDL_GetDesktopDisplayMode(disp_leftmost);
+
+	for (i = 0; i < r; i++) {
+		SDL_Rect rect;
+
+		if (!SDL_GetDisplayBounds(disp[i], &rect))
+			continue;
+
 		if (x0 > rect.x)
 			x0 = rect.x;
 		if (x1 < (rect.x + rect.w))
@@ -319,6 +352,8 @@ static int get_desktop_res(SDL_Rect *prect)
 	prect->y = y0;
 	prect->w = x1 - x0;
 	prect->h = y1 - y0;
+
+	*scale = mode->pixel_density;
 
 	SDL_free(disp);
 	return r;
@@ -349,12 +384,16 @@ int main(int argc, char *argv[])
 	char *file = NULL; /* output file */
 	int opt;
 	int num_disp;
+	float leftmost_scale;
 	static struct option long_opts[] = {
 		{"output", required_argument, 0, 'o'},
 		{0},
 	};
 	int esc = 0;
 	float density;
+#ifdef YUKINO_LAYER_SHELL
+	int layer = 0;
+#endif
 
 	/* parse command line opts */
 	while ((opt = getopt_long(argc, argv, "o:", long_opts, NULL)) != -1) {
@@ -372,7 +411,9 @@ int main(int argc, char *argv[])
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
 
-	num_disp = get_desktop_res(&desk_res);
+	num_disp = get_desktop_res(&desk_res, &leftmost_scale);
+
+	printf("leftmost_scale %0.2f\n", leftmost_scale);
 
 	{
 		yukino_connection_t *conn;
@@ -432,6 +473,14 @@ int main(int argc, char *argv[])
 				true);
 		}
 
+#ifdef YUKINO_LAYER_SHELL
+		layer = layer_shell_available();
+		if (layer)
+			SDL_SetBooleanProperty(props,
+				SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN,
+				true);
+#endif
+
 		win = SDL_CreateWindowWithProperties(props);
 
 		SDL_DestroyProperties(props);
@@ -439,6 +488,14 @@ int main(int argc, char *argv[])
 
 	if (!win)
 		goto end;
+
+#ifdef YUKINO_LAYER_SHELL
+	if (layer && layer_shell_attach(win, desk_res.w, desk_res.h) < 0) {
+		layer_shell_detach();
+		SDL_DestroyWindow(win);
+		goto end;
+	}
+#endif
 
 #ifdef SDL_USE_RENDERER
 	ren = SDL_CreateRenderer(win, NULL);
@@ -548,6 +605,10 @@ out:
 #ifdef SDL_USE_RENDERER
 	SDL_DestroyTexture(tex);
 	SDL_DestroyRenderer(ren);
+#endif
+#ifdef YUKINO_LAYER_SHELL
+	if (layer)
+		layer_shell_detach();
 #endif
 	SDL_DestroyWindow(win);
 	SDL_DestroyCursor(cur);
