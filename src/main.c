@@ -300,7 +300,7 @@ static int get_desktop_res(SDL_Rect *prect, float *scale)
 	SDL_DisplayID disp_biggest = 0;
 	int i, r, disp_biggest_set = 0;
 	int32_t x0, x1, y0, y1;
-	float s = 1.5;
+	float s = 1.0;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
@@ -367,6 +367,7 @@ int main(int argc, char *argv[])
 	SDL_Cursor *cur;
 	SDL_FRect sel;
 	SDL_FRect outsel;
+	SDL_FRect outsel2;
 	SDL_Rect desk_res;
 	/* Mouse down, drag */
 	enum { POINTS_DOWN, POINTS_DRAG, POINTS_MAX_ };
@@ -524,10 +525,12 @@ int main(int argc, char *argv[])
 			SDL_GetRectEnclosingPointsFloat(
 				points, POINTS_MAX_, NULL, &sel);
 			memcpy(&outsel, &sel, sizeof(SDL_FRect));
+			memcpy(&outsel2, &sel, sizeof(SDL_FRect));
 		} else if (query == YUKINO_RESULT_OK) {
 			/* This is not right (sometimes...) */
-			pixels_to_points(&sel, &w, density);
+			pixels_to_points(&sel, &w, biggest_scale);
 			memcpy(&outsel, &sel, sizeof(SDL_FRect));
+			memcpy(&outsel2, &sel, sizeof(SDL_FRect));
 		} else {
 			/* Otherwise the "selection" is the whole display */
 			sel.x = sel.y = 0;
@@ -546,7 +549,11 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, NULL, NULL);
 
 		SDL_SetTextureColorMod(tex, 255, 255, 255);
-		SDL_RenderTexture(ren, tex, &outsel, &outsel);
+		outsel.x *= biggest_scale;
+		outsel.y *= biggest_scale;
+		outsel.w *= biggest_scale;
+		outsel.h *= biggest_scale;
+		SDL_RenderTexture(ren, tex, &outsel, &outsel2);
 
 		SDL_RenderPresent(ren);
 #else
@@ -635,7 +642,7 @@ out:
 	/* Save it */
 	if (file) {
 		yukino_rect_t w;
-		points_to_pixels(&w, &sel, density);
+		points_to_pixels(&w, &sel, biggest_scale);
 		sdl_write_surface_to_png(file, sur, &w);
 		free(file);
 	}

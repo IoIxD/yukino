@@ -36,6 +36,7 @@ struct output {
 
 	/* logical position in the global compositor space */
 	int32_t x, y;
+	int32_t w, h;
 };
 
 static struct {
@@ -81,9 +82,6 @@ static const struct zwlr_layer_surface_v1_listener layer_listener = {
 	.closed = layer_closed,
 };
 
-/* ------------------------------------------------------------------------ */
-/* outputs; we only care where they are */
-
 static void xdg_output_logical_position(
 	void *data, struct zxdg_output_v1 *xdg_output, int32_t x, int32_t y)
 {
@@ -96,6 +94,11 @@ static void xdg_output_logical_position(
 static void xdg_output_logical_size(
 	void *data, struct zxdg_output_v1 *xdg_output, int32_t w, int32_t h)
 {
+	struct output *o = &ls.outputs[(size_t)data];
+
+	printf("%d\n", h);
+	o->w = w;
+	o->h = h;
 }
 
 static void xdg_output_done(void *data, struct zxdg_output_v1 *xdg_output)
@@ -121,11 +124,15 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
 };
 
 /* returns the output whose top left corner is closest to (0,0) */
-static struct wl_output *output_closest_to_origin(void)
+static struct wl_output *output_closest_to_origin(int64_t *x, int64_t *y)
 {
 	struct wl_output *best = NULL;
 	int64_t best_d = INT64_MAX;
 	size_t i;
+	int highest_x = 0;
+	int best_x = 0;
+	int highest_y = 0;
+	int best_y = 0;
 
 	for (i = 0; i < ls.outputs_size; i++) {
 		struct output *o = &ls.outputs[i];
@@ -140,8 +147,18 @@ static struct wl_output *output_closest_to_origin(void)
 		if (d < best_d) {
 			best_d = d;
 			best = o->output;
+			best_x = o->w;
+			best_y = o->h;
+		}
+		if (o->w > highest_x) {
+			highest_x = o->w;
+		}
+		if (o->h > highest_y) {
+			highest_y = o->h;
 		}
 	}
+	*x = highest_x - best_x;
+	*y = highest_y - best_y;
 
 	return best;
 }
@@ -206,6 +223,7 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 {
 	SDL_PropertiesID props = SDL_GetWindowProperties(win);
 	struct wl_surface *surface;
+	int64_t x, y;
 
 	ls.win = win;
 	ls.display = SDL_GetPointerProperty(
@@ -248,8 +266,8 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 	/* map onto whichever display sits at (or nearest) the origin. if
 	 * there are no outputs this is NULL, which lets the compositor pick */
 	ls.layer = zwlr_layer_shell_v1_get_layer_surface(ls.shell, surface,
-		output_closest_to_origin(), ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
-		"yukino");
+		output_closest_to_origin(&x, &y),
+		ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "yukino");
 	zwlr_layer_surface_v1_add_listener(ls.layer, &layer_listener, NULL);
 
 	/* pin to the top left corner (0,0), and ignore everyone else's
