@@ -29,7 +29,7 @@ AlignArrayOfStructures: Left
 AlignEscapedNewlines: DontAlign
 AlignConsecutiveMacros: true
 
-AllowShortIfStatementsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: InlineOnly

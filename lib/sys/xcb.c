@@ -59,7 +59,8 @@ static xcb_format_t *format_by_depth(const xcb_setup_t *setup, uint8_t depth)
 	xcb_format_iterator_t fmt = xcb_setup_pixmap_formats_iterator(setup);
 
 	for (; fmt.rem; xcb_format_next(&fmt))
-		if (fmt.data->depth == depth) return fmt.data;
+		if (fmt.data->depth == depth)
+			return fmt.data;
 
 	return NULL;
 }
@@ -71,7 +72,8 @@ static xcb_screen_t *screen_of_display(xcb_connection_t *c, int screen)
 
 	iter = xcb_setup_roots_iterator(xcb_get_setup(c));
 	for (; iter.rem; screen--, xcb_screen_next(&iter))
-		if (screen == 0) return iter.data;
+		if (screen == 0)
+			return iter.data;
 
 	return NULL;
 }
@@ -105,7 +107,8 @@ static xcb_visualtype_t *find_visual_for_window(
 	reply = xcb_get_window_attributes_reply(
 		conn->conn_data.conn, cookie, NULL);
 
-	if (!reply) return NULL;
+	if (!reply)
+		return NULL;
 
 	r = find_visual_by_id(
 		conn->conn_data.default_display_screen, reply->visual);
@@ -129,7 +132,8 @@ static yukino_result_t yukino_xcb_display_resolution(
 	xcb_screen_t *scr = conn->conn_data.default_display_screen;
 
 	/* Huh? */
-	if (!scr) return YUKINO_RESULT_UNSUPPORTED;
+	if (!scr)
+		return YUKINO_RESULT_UNSUPPORTED;
 
 	*w = scr->width_in_pixels;
 	*h = scr->height_in_pixels;
@@ -175,7 +179,8 @@ static yukino_result_t yukino_xcb_window_iter_start(yukino_connection_t *conn,
 	yukino_window_iter_t *wi;
 
 	wi = calloc(1, sizeof(*wi));
-	if (!wi) return YUKINO_RESULT_OUT_OF_MEMORY;
+	if (!wi)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
 
 	if (!win && conn->conn_data.atoms[ATOM_NET_CLIENT_LIST_STACKING]) {
 		wi->type = WITER_NET_CLIENT_LIST;
@@ -196,7 +201,8 @@ static yukino_result_t yukino_xcb_window_iter_start(yukino_connection_t *conn,
 static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 	yukino_window_iter_t *wi, yukino_window_t *pw)
 {
-	if (!wi || !pw) return YUKINO_RESULT_INVALID_PARAM;
+	if (!wi || !pw)
+		return YUKINO_RESULT_INVALID_PARAM;
 
 	if (!wi->w) {
 		switch (wi->type) {
@@ -250,9 +256,11 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 
 		wareply = xcb_get_window_attributes_reply(
 			conn->conn_data.conn, wacookie, NULL);
-		if (!wareply) continue; /* ??? */
+		if (!wareply)
+			continue; /* ??? */
 
-		if (wareply->map_state != XCB_MAP_STATE_VIEWABLE) continue;
+		if (wareply->map_state != XCB_MAP_STATE_VIEWABLE)
+			continue;
 
 		*pw = wi->w[wi->wit++];
 		return YUKINO_RESULT_OK;
@@ -264,7 +272,8 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 static yukino_result_t yukino_xcb_window_iter_end(
 	yukino_connection_t *conn, yukino_window_iter_t *wi)
 {
-	if (!wi) return YUKINO_RESULT_INVALID_PARAM;
+	if (!wi)
+		return YUKINO_RESULT_INVALID_PARAM;
 
 	free(wi->wacs);
 
@@ -326,11 +335,13 @@ static yukino_result_t yukino_xcb_window_decorated_position(
 		conn->conn_data.atoms[ATOM_NET_FRAME_EXTENTS], XCB_ATOM_ANY, 0L,
 		UINT_MAX);
 
-	if ((r = yukino_xcb_window_position(conn, win, pr)) < 0) return r;
+	if ((r = yukino_xcb_window_position(conn, win, pr)) < 0)
+		return r;
 
 	decreply
 		= xcb_get_property_reply(conn->conn_data.conn, deccookie, NULL);
-	if (!decreply) return YUKINO_RESULT_UNSUPPORTED;
+	if (!decreply)
+		return YUKINO_RESULT_UNSUPPORTED;
 
 	if (xcb_get_property_value_length(decreply) < (4 * sizeof(uint32_t))) {
 		free(decreply);
@@ -420,7 +431,8 @@ static yukino_result_t yukino_xcb_take_window(yukino_connection_t *conn,
 
 		/* meh */
 		vistype = find_visual_for_window(conn, win);
-		if (!vistype) return YUKINO_RESULT_UNSUPPORTED;
+		if (!vistype)
+			return YUKINO_RESULT_UNSUPPORTED;
 
 #define FILL(color) \
 	do { \
@@ -439,7 +451,8 @@ static yukino_result_t yukino_xcb_take_window(yukino_connection_t *conn,
 		win, x, y, w, h, 0xFFFFFFFF);
 
 	reply = xcb_get_image_reply(conn->conn_data.conn, cookie, NULL);
-	if (!reply) return YUKINO_RESULT_UNSUPPORTED;
+	if (!reply)
+		return YUKINO_RESULT_UNSUPPORTED;
 
 	data = xcb_get_image_data(reply);
 
@@ -514,7 +527,8 @@ yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn)
 	int i;
 
 	conn = malloc(sizeof(*conn));
-	if (!conn) return YUKINO_RESULT_OUT_OF_MEMORY;
+	if (!conn)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
 
 	conn->conn_data.conn
 		= xcb_connect(NULL, &conn->conn_data.default_display);
