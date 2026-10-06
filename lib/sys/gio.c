@@ -22,6 +22,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <wayland-client.h>
 
 #include <org.freedesktop.portal.Request.h>
@@ -56,6 +57,7 @@ struct yukino_connection_data {
 struct display_r {
 	yukino_rect_t pixel;
 	yukino_rect_t logical;
+	// int32_t scale_factor;
 	unsigned int has_logical_position : 1;
 	unsigned int has_logical_size : 1;
 };
@@ -64,9 +66,11 @@ struct display_data {
 	struct display_r **monitors;
 	size_t monitors_size;
 	struct zxdg_output_manager_v1 *om;
+	struct zwp_linux_dmabuf_v1 *dma;
 };
 
-static void handle_xdg_output_logical_position(void *data, struct zxdg_output_v1 *xdg_output, int32_t x, int32_t y)
+static void handle_xdg_output_logical_position(
+	void *data, struct zxdg_output_v1 *xdg_output, int32_t x, int32_t y)
 {
 	struct display_r *d = data;
 
@@ -75,7 +79,8 @@ static void handle_xdg_output_logical_position(void *data, struct zxdg_output_v1
 	d->has_logical_position = true;
 }
 
-static void handle_xdg_output_logical_size(void *data, struct zxdg_output_v1 *xdg_output, int32_t width, int32_t height)
+static void handle_xdg_output_logical_size(void *data,
+	struct zxdg_output_v1 *xdg_output, int32_t width, int32_t height)
 {
 	struct display_r *d = data;
 
@@ -84,15 +89,18 @@ static void handle_xdg_output_logical_size(void *data, struct zxdg_output_v1 *xd
 	d->has_logical_size = true;
 }
 
-static void handle_xdg_output_done(void *data, struct zxdg_output_v1 *xdg_output)
+static void handle_xdg_output_done(
+	void *data, struct zxdg_output_v1 *xdg_output)
 {
 }
 
-static void handle_xdg_output_name(void *data, struct zxdg_output_v1 *xdg_output, const char *name)
+static void handle_xdg_output_name(
+	void *data, struct zxdg_output_v1 *xdg_output, const char *name)
 {
 }
 
-static void handle_xdg_output_description(void *data, struct zxdg_output_v1 *xdg_output, const char *description)
+static void handle_xdg_output_description(
+	void *data, struct zxdg_output_v1 *xdg_output, const char *description)
 {
 }
 
@@ -138,6 +146,9 @@ static void output_handle_done(void *data, struct wl_output *wl_output)
 static void output_handle_scale(
 	void *data, struct wl_output *wl_output, int32_t factor)
 {
+	// struct display_r *r = data;
+
+	// r->scale_factor = factor;
 }
 
 // Wire up the wl_output listener
@@ -154,20 +165,31 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
 {
 	struct display_data *state = data;
 
-	if (strcmp(interface, "wl_output") == 0) {
-		state->monitors = realloc(state->monitors, sizeof(struct display_r *) * (state->monitors_size + 1));
-		state->monitors[state->monitors_size] = calloc(1, sizeof(struct display_r));
+	if (SDL_strcmp(interface, wl_output_interface.name) == 0) {
+		state->monitors = realloc(
+			state->monitors, sizeof(struct display_r *)
+						 * (state->monitors_size + 1));
+		state->monitors[state->monitors_size]
+			= calloc(1, sizeof(struct display_r));
 
-		struct wl_output *output = wl_registry_bind(registry, id, &wl_output_interface, 1);
-		wl_output_add_listener(output, &output_listener, state->monitors[state->monitors_size]);
+		struct wl_output *output = wl_registry_bind(
+			registry, id, &wl_output_interface, 2);
+		wl_output_add_listener(output, &output_listener,
+			state->monitors[state->monitors_size]);
 
-		struct zxdg_output_v1 *xdg_output = zxdg_output_manager_v1_get_xdg_output(state->om, output);
-		zxdg_output_v1_add_listener(xdg_output, &xdg_output_listener, state->monitors[state->monitors_size]);
+		struct zxdg_output_v1 *xdg_output
+			= zxdg_output_manager_v1_get_xdg_output(
+				state->om, output);
+		zxdg_output_v1_add_listener(xdg_output, &xdg_output_listener,
+			state->monitors[state->monitors_size]);
 
 		state->monitors_size++;
-	} else if (SDL_strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
-		if (version > 3) version = 3;
-		state->om = wl_registry_bind(registry, id, &zxdg_output_manager_v1_interface, version);
+	} else if (SDL_strcmp(interface, zxdg_output_manager_v1_interface.name)
+		   == 0) {
+		if (version > 3)
+			version = 3;
+		state->om = wl_registry_bind(registry, id,
+			&zxdg_output_manager_v1_interface, version);
 	}
 }
 
@@ -186,20 +208,27 @@ static const struct wl_registry_listener registry_listener = {
 	static int cmp_##XY(const void *a_, const void *b_) \
 	{ \
 		const struct display_r *a = *(void **)a_, *b = *(void **)b_; \
-		return (a->logical.XY > b->logical.XY) ? 1 : (a->logical.XY < b->logical.XY) ? -1 : 0; \
+		return (a->logical.XY > b->logical.XY)   ? 1 \
+		       : (a->logical.XY < b->logical.XY) ? -1 \
+							 : 0; \
 	} \
-	static void fixup_pixel_coordinates_##XY(struct display_data *pdd /* p diddy */) \
+	static void fixup_pixel_coordinates_##XY( \
+		struct display_data *pdd /* p diddy */) \
 	{ \
 		size_t i, j; \
 		/* First of all, sort them by x coordinate */ \
-		qsort(pdd->monitors, pdd->monitors_size, sizeof(struct display_r *), cmp_##XY); \
+		qsort(pdd->monitors, pdd->monitors_size, \
+			sizeof(struct display_r *), cmp_##XY); \
 		/* Fix all the shit */ \
 		for (i = 0; i < pdd->monitors_size; i++) \
-			for (j = i+1; j < pdd->monitors_size; j++) \
-				pdd->monitors[j]->pixel.XY = pdd->monitors[j]->pixel.XY + pdd->monitors[i]->pixel.WH - pdd->monitors[i]->logical.WH; \
+			for (j = i + 1; j < pdd->monitors_size; j++) \
+				pdd->monitors[j]->pixel.XY \
+					= pdd->monitors[j]->pixel.XY \
+					  + pdd->monitors[i]->pixel.WH \
+					  - pdd->monitors[i]->logical.WH; \
 	}
-CMP(x,w)
-CMP(y,h)
+CMP(x, w)
+CMP(y, h)
 #undef CMP
 static void fixup_pixel_coordinates(struct display_data *pdd)
 {
@@ -217,7 +246,8 @@ static yukino_result_t yukino_gio_display_resolution(
 	memset(&dd, 0, sizeof(dd));
 
 	{
-		struct wl_registry *registry = wl_display_get_registry(conn->conn_data.display);
+		struct wl_registry *registry
+			= wl_display_get_registry(conn->conn_data.display);
 		wl_registry_add_listener(registry, &registry_listener, &dd);
 
 		wl_display_roundtrip(conn->conn_data.display);
@@ -238,10 +268,17 @@ static yukino_result_t yukino_gio_display_resolution(
 		struct display_r *m = dd.monitors[i];
 		int32_t x, y, w, h;
 
-		x = m->pixel.x;
-		y = m->pixel.y;
-		w = m->pixel.w;
-		h = m->pixel.h;
+		if (m->has_logical_size) {
+			x = m->logical.x;
+			y = m->logical.y;
+			w = m->logical.w;
+			h = m->logical.h;
+		} else {
+			x = m->pixel.x;
+			y = m->pixel.y;
+			w = m->pixel.w;
+			h = m->pixel.h;
+		}
 
 		if (x < minx)
 			minx = x;

@@ -305,10 +305,14 @@ static int get_desktop_res(SDL_Rect *prect)
 		SDL_Rect rect;
 		if (!SDL_GetDisplayBounds(disp[i], &rect))
 			continue;
-		if (x0 > rect.x) x0 = rect.x;
-		if (x1 < (rect.x + rect.w)) x1 = (rect.x + rect.w);
-		if (y0 > rect.y) y0 = rect.y;
-		if (y1 < (rect.y + rect.h)) y1 = (rect.y + rect.h);
+		if (x0 > rect.x)
+			x0 = rect.x;
+		if (x1 < (rect.x + rect.w))
+			x1 = (rect.x + rect.w);
+		if (y0 > rect.y)
+			y0 = rect.y;
+		if (y1 < (rect.y + rect.h))
+			y1 = (rect.y + rect.h);
 	}
 
 	prect->x = x0;
@@ -395,8 +399,8 @@ int main(int argc, char *argv[])
 	{
 		SDL_PropertiesID props = SDL_CreateProperties();
 
-		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
+		SDL_SetNumberProperty(props,
+			SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
 		SDL_SetNumberProperty(
 			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, desk_res.w);
 		SDL_SetBooleanProperty(
@@ -408,12 +412,12 @@ int main(int argc, char *argv[])
 		SDL_SetBooleanProperty(props,
 			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
 			true);
-		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER,
-			desk_res.x);
-		SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER,
-			desk_res.y);
-		SDL_SetBooleanProperty(props, SDL_PROP_WINDOW_CREATE_UTILITY_BOOLEAN,
-			true);
+		SDL_SetNumberProperty(
+			props, SDL_PROP_WINDOW_CREATE_X_NUMBER, desk_res.x);
+		SDL_SetNumberProperty(
+			props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, desk_res.y);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_UTILITY_BOOLEAN, true);
 
 		/* On MATE, if there is only one display, the top bar will push
 		 * the window down. Bypass that by setting the window to
