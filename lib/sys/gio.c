@@ -203,45 +203,13 @@ static const struct wl_registry_listener registry_listener = {
 	.global_remove = registry_handle_global_remove,
 };
 
-/* for qsort */
-#define CMP(XY, WH) \
-	static int cmp_##XY(const void *a_, const void *b_) \
-	{ \
-		const struct display_r *a = *(void **)a_, *b = *(void **)b_; \
-		return (a->logical.XY > b->logical.XY)   ? 1 \
-		       : (a->logical.XY < b->logical.XY) ? -1 \
-							 : 0; \
-	} \
-	static void fixup_pixel_coordinates_##XY( \
-		struct display_data *pdd /* p diddy */) \
-	{ \
-		size_t i, j; \
-		/* First of all, sort them by x coordinate */ \
-		qsort(pdd->monitors, pdd->monitors_size, \
-			sizeof(struct display_r *), cmp_##XY); \
-		/* Fix all the shit */ \
-		for (i = 0; i < pdd->monitors_size; i++) \
-			for (j = i + 1; j < pdd->monitors_size; j++) \
-				pdd->monitors[j]->pixel.XY \
-					= pdd->monitors[j]->pixel.XY \
-					  + pdd->monitors[i]->pixel.WH \
-					  - pdd->monitors[i]->logical.WH; \
-	}
-CMP(x, w)
-CMP(y, h)
-#undef CMP
-static void fixup_pixel_coordinates(struct display_data *pdd)
-{
-	fixup_pixel_coordinates_x(pdd);
-	fixup_pixel_coordinates_y(pdd);
-}
-
 static yukino_result_t yukino_gio_display_resolution(
 	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
 {
 	struct display_data dd;
-	int32_t minx, miny, maxx, maxy;
+	double minx, miny, maxx, maxy;
 	size_t i;
+	double scale;
 
 	memset(&dd, 0, sizeof(dd));
 
@@ -262,25 +230,29 @@ static yukino_result_t yukino_gio_display_resolution(
 	// 4. Calculate total desktop dimensions based on individual geometries
 	minx = miny = maxx = maxy = 0;
 
-	fixup_pixel_coordinates(&dd);
+	scale = 0.0;
+	for (i = 0; i < dd.monitors_size; i++) {
+		struct display_r *m = dd.monitors[i];
+
+		if (m->has_logical_size) {
+			double s;
+
+			/* hahahahahah.. hope it's the same for */
+			s = (double)m->pixel.w / m->logical.w;
+			if (scale < s) scale = s;
+			s = (double)m->pixel.h / m->logical.h;
+			if (scale < s) scale = s;
+		}
+	}
 
 	for (i = 0; i < dd.monitors_size; i++) {
 		struct display_r *m = dd.monitors[i];
-		int32_t x, y, w, h;
+		double x, y, w, h;
 
-		if (m->has_logical_size) {
-			x = m->logical.x;
-			y = m->logical.y;
-			w = m->logical.w;
-			h = m->logical.h;
-		} else
-		//
-		{
-			x = m->pixel.x;
-			y = m->pixel.y;
-			w = m->pixel.w;
-			h = m->pixel.h;
-		}
+		x = m->logical.x * scale;
+		y = m->logical.y * scale;
+		w = m->logical.w * scale;
+		h = m->logical.h * scale;
 
 		if (x < minx)
 			minx = x;
@@ -295,11 +267,13 @@ static yukino_result_t yukino_gio_display_resolution(
 	}
 	free(dd.monitors);
 
-	int32_t total_width = maxx - minx;
-	int32_t total_height = maxy - miny;
+	int32_t total_width = roundl(maxx - minx);
+	int32_t total_height = roundl(maxy - miny);
 
 	*w = total_width;
 	*h = total_height;
+
+	printf("%f %d %d\n", scale, total_width, total_height);
 
 	return YUKINO_RESULT_OK;
 }

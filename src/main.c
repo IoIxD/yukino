@@ -79,7 +79,7 @@ static SDL_Surface *sdl_screenshot(yukino_connection_t *conn, uint32_t x,
 
 /* Takes a screenshot of the whole display */
 static SDL_Surface *sdl_screenshot_display(
-	yukino_connection_t *conn, float biggest_scale)
+	yukino_connection_t *conn)
 {
 	yukino_result_t r;
 	uint32_t w, h;
@@ -87,7 +87,7 @@ static SDL_Surface *sdl_screenshot_display(
 	if ((r = yukino_display_resolution(conn, &w, &h)) < 0)
 		return NULL;
 
-	return sdl_screenshot(conn, 0, 0, w * biggest_scale, h * biggest_scale);
+	return sdl_screenshot(conn, 0, 0, w, h);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -294,7 +294,7 @@ static void pixels_to_points(
 	out->h = in->h / density;
 }
 
-static int get_desktop_res(SDL_Rect *prect, float *scale)
+static int get_desktop_res(SDL_Rect *prect)
 {
 	SDL_DisplayID *disp;
 	SDL_DisplayID disp_biggest = 0;
@@ -308,20 +308,6 @@ static int get_desktop_res(SDL_Rect *prect, float *scale)
 
 	x0 = y0 = INT32_MAX;
 	x1 = y1 = INT32_MIN;
-
-	/* get the monitor with the biggest scale */
-	for (i = 0; i < r; i++) {
-		SDL_Rect rect;
-		const SDL_DisplayMode *mode = NULL;
-
-		/* and get the scale of it */
-		mode = SDL_GetDesktopDisplayMode(disp[i]);
-
-		if (mode)
-			if (mode->pixel_density >= s) {
-				s = mode->pixel_density;
-			}
-	}
 
 	for (i = 0; i < r; i++) {
 		SDL_Rect rect;
@@ -343,8 +329,6 @@ static int get_desktop_res(SDL_Rect *prect, float *scale)
 	prect->y = y0;
 	prect->w = x1 - x0;
 	prect->h = y1 - y0;
-
-	*scale = s;
 
 	SDL_free(disp);
 	return r;
@@ -375,13 +359,11 @@ int main(int argc, char *argv[])
 	char *file = NULL; /* output file */
 	int opt;
 	int num_disp;
-	float biggest_scale;
 	static struct option long_opts[] = {
 		{"output", required_argument, 0, 'o'},
 		{0},
 	};
 	int esc = 0;
-	float density;
 #ifdef YUKINO_LAYER_SHELL
 	int layer = 0;
 #endif
@@ -402,9 +384,7 @@ int main(int argc, char *argv[])
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
 
-	num_disp = get_desktop_res(&desk_res, &biggest_scale);
-
-	printf("biggest_scale %0.2f\n", biggest_scale);
+	num_disp = get_desktop_res(&desk_res);
 
 	{
 		yukino_connection_t *conn;
@@ -418,7 +398,7 @@ int main(int argc, char *argv[])
 
 		windows_fill(conn);
 
-		sur = sdl_screenshot_display(conn, biggest_scale);
+		sur = sdl_screenshot_display(conn);
 
 		yukino_unlock(conn);
 
@@ -499,8 +479,6 @@ int main(int argc, char *argv[])
 		goto end;
 #endif
 
-	density = SDL_GetWindowPixelDensity(win);
-
 	cur = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
 	SDL_SetCursor(cur);
 
@@ -513,21 +491,21 @@ int main(int argc, char *argv[])
 		SDL_GetMouseState(&mx, &my);
 
 		/* FIXME wayland doesn't work this way */
-		mx *= density;
-		my *= density;
+		SDL_RenderCoordinatesFromWindow(ren, mx, my, &mx, &my);
 
 		query = windows_query_at_point(mx, my, &w);
 
 		/* Adjust selection */
 		if (drag) {
+			SDL_FPoint point_rend[POINTS_MAX_];
+			for (int i = 0; i < POINTS_MAX_; i++)
+				SDL_RenderCoordinatesFromWindow(ren, points[i].x, points[i].y, &point_rend[i].x, &point_rend[i].y);
 			/* Lol wow SDL has a function for this */
 			SDL_GetRectEnclosingPointsFloat(
-				points, POINTS_MAX_, NULL, &sel);
-			memcpy(&outsel, &sel, sizeof(SDL_FRect));
+				point_rend, POINTS_MAX_, NULL, &sel);
 		} else if (query == YUKINO_RESULT_OK) {
 			/* This is not right (sometimes...) */
-			pixels_to_points(&sel, &w, density);
-			memcpy(&outsel, &sel, sizeof(SDL_FRect));
+			pixels_to_points(&sel, &w, 1.0);
 		} else {
 			/* Otherwise the "selection" is the whole display */
 			sel.x = sel.y = 0;
@@ -546,7 +524,7 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, NULL, NULL);
 
 		SDL_SetTextureColorMod(tex, 255, 255, 255);
-		SDL_RenderTexture(ren, tex, &outsel, &outsel);
+		SDL_RenderTexture(ren, tex, &sel, &sel);
 
 		SDL_RenderPresent(ren);
 #else
@@ -635,7 +613,7 @@ out:
 	/* Save it */
 	if (file) {
 		yukino_rect_t w;
-		points_to_pixels(&w, &sel, density);
+		points_to_pixels(&w, &sel, 1.0); /* This is in render coordinates, but we need integers */
 		sdl_write_surface_to_png(file, sur, &w);
 		free(file);
 	}
