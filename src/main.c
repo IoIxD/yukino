@@ -295,13 +295,14 @@ static void pixels_to_points(
 	out->h = in->h / density;
 }
 
-static int get_desktop_res(SDL_Rect *prect)
+static int get_desktop_res(SDL_Rect *prect, int *rrn, int *rrd)
 {
 	SDL_DisplayID *disp;
 	SDL_DisplayID disp_biggest = 0;
 	int i, r, disp_biggest_set = 0;
 	int32_t x0, x1, y0, y1;
 	float s = 1.5;
+	float rr = 0.0f;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
@@ -312,6 +313,14 @@ static int get_desktop_res(SDL_Rect *prect)
 
 	for (i = 0; i < r; i++) {
 		SDL_Rect rect;
+		const SDL_DisplayMode *mode;
+
+		mode = SDL_GetDesktopDisplayMode(disp[i]);
+		if (mode && mode->refresh_rate >= rr) {
+			rr = mode->refresh_rate;
+			*rrn = mode->refresh_rate_numerator;
+			*rrd = mode->refresh_rate_denominator;
+		}
 
 		if (!SDL_GetDisplayBounds(disp[i], &rect))
 			continue;
@@ -335,23 +344,15 @@ static int get_desktop_res(SDL_Rect *prect)
 	return r;
 }
 
-/* don't turn this off, the surface impl is borked */
-#define SDL_USE_RENDERER 1
-
 int main(int argc, char *argv[])
 {
 	SDL_Surface *sur;
 	SDL_Window *win;
-#ifdef SDL_USE_RENDERER
 	SDL_Renderer *ren;
 	SDL_Texture *tex;
-#else
-	SDL_Surface *winsur;
-#endif
 	SDL_Event ev;
 	SDL_Cursor *cur;
 	SDL_FRect sel;
-	SDL_FRect outsel;
 	SDL_Rect desk_res;
 	/* Mouse down, drag */
 	enum { POINTS_DOWN, POINTS_DRAG, POINTS_MAX_ };
@@ -368,6 +369,8 @@ int main(int argc, char *argv[])
 #ifdef YUKINO_LAYER_SHELL
 	int layer = 0;
 #endif
+	int refresh_rate_num, refresh_rate_den;
+	Uint64 redraw_ns;
 
 	/* parse command line opts */
 	while ((opt = getopt_long(argc, argv, "o:", long_opts, NULL)) != -1) {
@@ -385,7 +388,8 @@ int main(int argc, char *argv[])
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
 
-	num_disp = get_desktop_res(&desk_res);
+	num_disp = get_desktop_res(&desk_res, &refresh_rate_num, &refresh_rate_den);
+	redraw_ns = SDL_NS_PER_SECOND * refresh_rate_den / refresh_rate_num;
 
 	{
 		yukino_connection_t *conn;
@@ -469,16 +473,12 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-#ifdef SDL_USE_RENDERER
+	SDL_ShowWindow(win);
+
 	ren = SDL_CreateRenderer(win, NULL);
 	if (!ren)
 		goto end;
 	tex = SDL_CreateTextureFromSurface(ren, sur);
-#else
-	winsur = SDL_GetWindowSurface(win);
-	if (!winsur)
-		goto end;
-#endif
 
 	cur = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
 	SDL_SetCursor(cur);
@@ -488,33 +488,71 @@ int main(int argc, char *argv[])
 		yukino_rect_t w;
 		SDL_FRect rendsel;
 		float scale_to_render, scale_from_render;
+		int redraw = 0;
+		static Uint64 next_redraw;
+		Uint64 this_redraw;
 
-		SDL_GetMouseState(&mx, &my);
+		{
+			int www,hhh;
+			SDL_GetRenderOutputSize(ren, &www, &hhh);
+			scale_to_render = (float)www / sur->w;
+			scale_from_render = (float)sur->w / www;
+		}
 
-		/* FIXME wayland doesn't work this way */
-		SDL_RenderCoordinatesFromWindow(ren, mx, my, &mx, &my);
+		switch (ev.type) {
+		case SDL_EVENT_WINDOW_SHOWN:
+		case SDL_EVENT_WINDOW_EXPOSED:
+			redraw = 1;
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_DOWN:
+			down = 1;
+#define SCALE_FROM_WINDOW(x,y,px,py) (SDL_RenderCoordinatesFromWindow(ren, x, y, px, py), *(px) *= scale_from_render, (*py) *= scale_from_render)
+			SCALE_FROM_WINDOW(ev.button.x, ev.button.y, &points[POINTS_DOWN].x, &points[POINTS_DOWN].y);
+			redraw = 1;
+			break;
+		case SDL_EVENT_MOUSE_MOTION:
+			if (down)
+				drag = 1;
+			SCALE_FROM_WINDOW(ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x, &points[POINTS_DRAG].y);
+			redraw = 1;
+			break;
+		case SDL_EVENT_KEY_DOWN:
+			if (ev.key.key == SDLK_ESCAPE) {
+				esc = 1;
+				goto out;
+			}
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			goto out;
+		}
+
+		if (!redraw)
+			continue;
+
+		/* FIXME check the monitor with the highest refresh rate */
+		this_redraw = SDL_GetTicksNS();
+		if (this_redraw < next_redraw)
+			continue;
+		next_redraw = this_redraw + redraw_ns;
 
 		/* Adjust selection */
 		if (drag) {
 			/* Lol wow SDL has a function for this */
 			SDL_GetRectEnclosingPointsFloat(
 				points, POINTS_MAX_, NULL, &sel);
-		} else if (windows_query_at_point(mx, my, &w) == YUKINO_RESULT_OK) {
-			/* This is not right (sometimes...) */
-			pixels_to_points(&sel, &w, 1.0);
 		} else {
-			/* Otherwise the "selection" is the whole display */
-			sel.x = sel.y = 0;
-			sel.w = sur->w;
-			sel.h = sur->h;
+			SDL_GetMouseState(&mx, &my);
+			SCALE_FROM_WINDOW(mx, my, &mx, &my);
+			if (windows_query_at_point(mx, my, &w) == YUKINO_RESULT_OK) {
+				pixels_to_points(&sel, &w, 1.0);
+			} else {
+				/* the "selection" is the whole display */
+				sel.x = sel.y = 0;
+				sel.w = sur->w;
+				sel.h = sur->h;
+			}
 		}
 
-		int www,hhh;
-		SDL_GetRenderOutputSize(ren, &www, &hhh);
-		scale_to_render = (float)www / sur->w;
-		scale_from_render = (float)sur->w / www;
-
-#ifdef SDL_USE_RENDERER
 		rendsel.x = sel.x * scale_to_render;
 		rendsel.y = sel.y * scale_to_render;
 		rendsel.w = sel.w * scale_to_render;
@@ -533,45 +571,6 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, &sel, &rendsel);
 
 		SDL_RenderPresent(ren);
-#else
-		if (SDL_MUSTLOCK(winsur))
-			SDL_LockSurface(winsur);
-
-		SDL_BlitSurface(sur, NULL, winsur, NULL);
-
-		if (SDL_MUSTLOCK(winsur))
-			SDL_UnlockSurface(winsur);
-
-		SDL_UpdateWindowSurface(win);
-#endif
-
-		/* When we create our window, it's hidden, to avoid showing a
-		 * huge blank window on startup. Now we want to show the window
-		 * since it's done rendering. */
-		SDL_ShowWindow(win);
-
-		switch (ev.type) {
-		case SDL_EVENT_MOUSE_BUTTON_DOWN:
-			down = 1;
-			SDL_RenderCoordinatesFromWindow(ren, ev.button.x, ev.button.y, &points[POINTS_DOWN].x, &points[POINTS_DOWN].y);
-			points[POINTS_DOWN].x *= scale_from_render;
-			points[POINTS_DOWN].y *= scale_from_render;
-			break;
-		case SDL_EVENT_MOUSE_MOTION:
-			if (down)
-				drag = 1;
-			SDL_RenderCoordinatesFromWindow(ren, ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x, &points[POINTS_DRAG].y);
-			points[POINTS_DRAG].x *= scale_from_render;
-			points[POINTS_DRAG].y *= scale_from_render;
-			break;
-		case SDL_EVENT_KEY_DOWN:
-			if (ev.key.key == SDLK_ESCAPE) {
-				esc = 1;
-				goto out;
-			}
-			break;
-		case SDL_EVENT_MOUSE_BUTTON_UP: goto out;
-		}
 	} while (SDL_WaitEvent(&ev));
 
 out:
@@ -579,10 +578,8 @@ out:
 	 * So, take what we have, and shove it into the png writer */
 
 	/* No longer need any of this */
-#ifdef SDL_USE_RENDERER
 	SDL_DestroyTexture(tex);
 	SDL_DestroyRenderer(ren);
-#endif
 #ifdef YUKINO_LAYER_SHELL
 	if (layer)
 		layer_shell_detach();
