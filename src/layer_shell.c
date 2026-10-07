@@ -16,15 +16,13 @@
  * with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "yukino.h"
 #include "layer_shell.h"
 
-#include <stdio.h>
 #include <wayland-client.h>
 
 #include "wlr-layer-shell-unstable-v1.h"
 #include "xdg-output-unstable-v1.h"
-
-#include <stdlib.h>
 
 /* ------------------------------------------------------------------------ */
 /* turn a roleless SDL wayland surface into a wlr layer surface */
@@ -34,10 +32,11 @@ struct output {
 	struct zxdg_output_v1 *xdg_output;
 	uint32_t version;
 
-	/* logical position in the global compositor space */
-	int32_t x, y;
+	/* logical position and size in the global compositor space */
+	int32_t x, y, w, h;
 };
 
+/* stinky global var */
 static struct {
 	struct output *outputs;
 	size_t outputs_size;
@@ -87,7 +86,7 @@ static const struct zwlr_layer_surface_v1_listener layer_listener = {
 static void xdg_output_logical_position(
 	void *data, struct zxdg_output_v1 *xdg_output, int32_t x, int32_t y)
 {
-	struct output *o = &ls.outputs[(size_t)data];
+	struct output *o = &ls.outputs[(size_t)(uintptr_t)data];
 
 	o->x = x;
 	o->y = y;
@@ -96,6 +95,10 @@ static void xdg_output_logical_position(
 static void xdg_output_logical_size(
 	void *data, struct zxdg_output_v1 *xdg_output, int32_t w, int32_t h)
 {
+	struct output *o = &ls.outputs[(size_t)(uintptr_t)data];
+
+	o->w = w;
+	o->h = h;
 }
 
 static void xdg_output_done(void *data, struct zxdg_output_v1 *xdg_output)
@@ -120,30 +123,88 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
 	.description = xdg_output_description,
 };
 
-/* returns the output whose top left corner is closest to (0,0) */
-static struct wl_output *output_closest_to_origin(void)
+static int get_desktop_rect_in_points(struct output *o, size_t os, yukino_rect_t *r)
 {
-	struct wl_output *best = NULL;
-	int64_t best_d = INT64_MAX;
 	size_t i;
+	int32_t x0, x1, y0, y1;
 
-	for (i = 0; i < ls.outputs_size; i++) {
-		struct output *o = &ls.outputs[i];
-		int64_t d;
+	if (!os) return -1;
 
-		/* no xdg_output means we never learned its position */
-		if (!o->xdg_output)
-			continue;
+	x0 = y0 = INT32_MAX;
+	x1 = y1 = INT32_MIN;
+	for (i = 0; i < os; i++) {
+		/* f'(x) */
+		int32_t dx0, dx1, dy0, dy1;
 
-		d = (int64_t)o->x * o->x + (int64_t)o->y * o->y;
+		dx0 = o[i].x;
+		dy0 = o[i].y;
+		dx1 = dx0 + o[i].w;
+		dy1 = dy0 + o[i].h;
 
-		if (d < best_d) {
-			best_d = d;
-			best = o->output;
-		}
+		if (x0 > dx0) x0 = dx0;
+		if (x1 < dx1) x1 = dx1;
+		if (y0 > dy0) y0 = dy0;
+		if (y1 < dy1) y1 = dy1;
 	}
 
-	return best;
+	r->x = x0;
+	r->y = y0;
+	r->w = x1 - x0;
+	r->h = y1 - y0;
+
+	return 0;
+}
+
+static int check_monitor_in_corner(struct output *o,
+	const yukino_rect_t *desk_rect, uint32_t *flags)
+{
+	int32_t x0, x1, y0, y1, dx0, dx1, dy0, dy1;
+	uint32_t i, f;
+
+	x0 = o->x;
+	x1 = x0 + o->w;
+	y0 = o->y;
+	y1 = y0 + o->h;
+	dx0 = desk_rect->x;
+	dx1 = dx0 + desk_rect->w;
+	dy0 = desk_rect->y;
+	dy1 = dy0 + desk_rect->h;
+
+	i = f = 0;
+#define CHECK(coord, pos) \
+do { \
+	if (coord == d##coord) { \
+		f |= ZWLR_LAYER_SURFACE_V1_ANCHOR_##pos; \
+		i++; \
+	} \
+} while (0)
+	CHECK(x0, LEFT);
+	CHECK(x1, RIGHT);
+	CHECK(y0, TOP);
+	CHECK(y1, BOTTOM);
+#undef CHECK
+
+	if (i < 2)
+		return -1; /* Fail */
+
+	*flags = f;
+	return 0;
+}
+
+/* returns the output whose top left corner is closest to (0,0) */
+static struct wl_output *output_in_corner(uint32_t *f)
+{
+	yukino_rect_t desk_res;
+	size_t i;
+
+	if (get_desktop_rect_in_points(ls.outputs, ls.outputs_size, &desk_res) < 0)
+		return NULL;
+
+	for (i = 0; i < ls.outputs_size; i++)
+		if (check_monitor_in_corner(ls.outputs + i, &desk_res, f) == 0)
+			return ls.outputs[i].output;
+
+	return NULL;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -171,7 +232,7 @@ static void registry_global(void *data, struct wl_registry *registry,
 			version = 3;
 
 		o = &ls.outputs[ls.outputs_size];
-		o->x = o->y = 0;
+		o->x = o->y = o->w = o->h = 0;
 		o->xdg_output = NULL;
 		o->version = version;
 		o->output = wl_registry_bind(
@@ -206,6 +267,8 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 {
 	SDL_PropertiesID props = SDL_GetWindowProperties(win);
 	struct wl_surface *surface;
+	struct wl_output *output;
+	uint32_t flags;
 
 	ls.win = win;
 	ls.display = SDL_GetPointerProperty(
@@ -233,7 +296,7 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 			/* index rather than pointer, since realloc moves
 			 * things */
 			zxdg_output_v1_add_listener(
-				o->xdg_output, &xdg_output_listener, (void *)i);
+				o->xdg_output, &xdg_output_listener, (void *)(uintptr_t)i);
 		}
 
 		/* second roundtrip gets the xdg_output events */
@@ -245,18 +308,22 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 		return -1;
 	}
 
+	output = output_in_corner(&flags);
+	if (!output) {
+		SDL_Log("What kind of fuckery is happening in your display setup?");
+		return -1;
+	}
+
 	/* map onto whichever display sits at (or nearest) the origin. if
 	 * there are no outputs this is NULL, which lets the compositor pick */
 	ls.layer = zwlr_layer_shell_v1_get_layer_surface(ls.shell, surface,
-		output_closest_to_origin(), ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
+		output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
 		"yukino");
 	zwlr_layer_surface_v1_add_listener(ls.layer, &layer_listener, NULL);
 
 	/* pin to the top left corner (0,0), and ignore everyone else's
 	 * exclusive zones (panels etc.) so they don't push us around */
-	zwlr_layer_surface_v1_set_anchor(
-		ls.layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
-				  | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT);
+	zwlr_layer_surface_v1_set_anchor(ls.layer, flags);
 	zwlr_layer_surface_v1_set_margin(ls.layer, 0, 0, 0, 0);
 	zwlr_layer_surface_v1_set_size(ls.layer, w, h);
 	zwlr_layer_surface_v1_set_exclusive_zone(ls.layer, -1);
