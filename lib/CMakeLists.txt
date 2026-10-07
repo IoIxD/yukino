@@ -22,7 +22,7 @@ find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(XCB xcb)
 pkg_check_modules(ZLIB zlib)
-pkg_check_modules(GIO gio-2.0)
+pkg_check_modules(GIO gio-2.0 glib-2.0)
 pkg_check_modules(WAYLAND wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner)
 

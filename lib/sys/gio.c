@@ -18,6 +18,7 @@
 
 #include "yukino.h"
 
+#include <glib.h>
 #include <gio/gio.h>
 #include <limits.h>
 #include <stdio.h>
@@ -28,8 +29,6 @@
 #include <org.freedesktop.portal.Request.h>
 #include <org.freedesktop.portal.Screenshot.h>
 #include <xdg-output-unstable-v1.h>
-
-#include <SDL3/SDL.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -43,6 +42,8 @@ struct yukino_connection_data {
 	GError *error;
 	GMainLoop *loop;
 	GDBusConnection *conn;
+
+	yukino_result_t temp_err; /* pingas */
 	yukino_pixel_proc_t temp_pixel_func;
 	int temp_pixel_func_x;
 	int temp_pixel_func_y;
@@ -76,7 +77,7 @@ static void handle_xdg_output_logical_position(
 
 	d->logical.x = x;
 	d->logical.y = y;
-	d->has_logical_position = true;
+	d->has_logical_position = 1;
 }
 
 static void handle_xdg_output_logical_size(void *data,
@@ -86,7 +87,7 @@ static void handle_xdg_output_logical_size(void *data,
 
 	d->logical.w = width;
 	d->logical.h = height;
-	d->has_logical_size = true;
+	d->has_logical_size = 1;
 }
 
 static void handle_xdg_output_done(
@@ -165,7 +166,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
 {
 	struct display_data *state = data;
 
-	if (SDL_strcmp(interface, wl_output_interface.name) == 0) {
+	if (strcmp(interface, wl_output_interface.name) == 0) {
 		state->monitors = realloc(
 			state->monitors, sizeof(struct display_r *)
 						 * (state->monitors_size + 1));
@@ -184,7 +185,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
 			state->monitors[state->monitors_size]);
 
 		state->monitors_size++;
-	} else if (SDL_strcmp(interface, zxdg_output_manager_v1_interface.name)
+	} else if (strcmp(interface, zxdg_output_manager_v1_interface.name)
 		   == 0) {
 		if (version > 3)
 			version = 3;
@@ -271,8 +272,6 @@ static yukino_result_t yukino_gio_display_resolution(
 	*w = total_width;
 	*h = total_height;
 
-	printf("%f %d %d\n", scale, total_width, total_height);
-
 	return YUKINO_RESULT_OK;
 }
 
@@ -292,18 +291,21 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 		uint8_t *full_img = NULL;
 
 		/* FIXME decode URI (maybe glib can do this) */
-		const char *path = g_strdup(uri);
-		if (strncmp(path, "file://", 7) == 0)
-			path += 7;
+		gchar *path = g_filename_from_uri(uri, NULL, NULL);
+		if (!path) {
+			data->temp_err = YUKINO_RESULT_UNSUPPORTED;
+			goto done;
+		}
 
 		int w = 0, h = 0, channels = 0;
 		full_img = stbi_load(path, &w, &h, &channels, 4);
 		unlink(path);
+		free(path);
 
-		if (w < data->temp_pixel_func_w)
+		if ((w < data->temp_pixel_func_w) || (h < data->temp_pixel_func_h)) {
+			data->temp_err = YUKINO_RESULT_UNSUPPORTED;
 			goto done;
-		if (h < data->temp_pixel_func_h)
-			goto done;
+		}
 
 		const uint8_t *pxl = full_img;
 		pxl += data->temp_pixel_func_x * 4;
@@ -315,8 +317,10 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 				r = data->temp_pixel_func(
 					data->temp_pixel_func_data,
 					pxl + (x * 4));
-				if (r < 0)
+				if (r < 0) {
+					data->temp_err = r;
 					goto done;
+				}
 			}
 			pxl += w * 4;
 		}
@@ -360,6 +364,7 @@ static yukino_result_t yukino_gio_take(yukino_connection_t *conn, uint32_t x,
 	conn->conn_data.temp_pixel_func_w = w;
 	conn->conn_data.temp_pixel_func_h = h;
 	conn->conn_data.temp_pixel_func_data = userdata;
+	conn->conn_data.temp_err = YUKINO_RESULT_OK;
 
 	/* Predict request path: unique name ":1.234" -> "1_234" */
 	g_autofree gchar *sender = g_strdup(
@@ -396,7 +401,7 @@ static yukino_result_t yukino_gio_take(yukino_connection_t *conn, uint32_t x,
 	conn->conn_data.temp_pixel_func = NULL;
 	conn->conn_data.temp_pixel_func_data = NULL;
 
-	return YUKINO_RESULT_OK;
+	return conn->conn_data.temp_err;
 }
 
 /* ------------------------------------------------------------------------ */
