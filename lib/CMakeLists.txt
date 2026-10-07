@@ -32,7 +32,7 @@ set(LIBRARIES "")
 set(INCLUDE "")
 set(DEFINES "")
 
-set(SRC_FILES yukino.c crc32.c adler32.c fmt/png.c fmt/ppm.c fmt/bmp.c)
+set(SRC_FILES yukino.c crc32.c adler32.c uri.c fmt/png.c fmt/ppm.c fmt/bmp.c)
 
 if(XCB_FOUND)
   list(APPEND LIBRARIES ${XCB_LINK_LIBRARIES})

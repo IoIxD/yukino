@@ -145,4 +145,13 @@ YUKINO_INLINE unsigned int yukino_popcnt32(uint32_t x)
 #endif
 }
 
+/* URI decoding.
+ *
+ * Consumes the input buffer p of size len, and puts the decoded form
+ * into *res.
+ * The buffer put into *res is always NUL terminated, so if you know
+ * you just need a C string, you do not need to pass a res_size. */
+yukino_result_t yukino_uri_decode(const char *p, size_t len, unsigned char **res, size_t *res_size);
+yukino_result_t yukino_uri_get_file_path(const char *p, char **res);
+
 #endif /* YUKINO_C_H_ */

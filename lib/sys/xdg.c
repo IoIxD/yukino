@@ -17,38 +17,47 @@
  */
 
 #include "yukino.h"
+#include "yukino_c.h"
 
 #include "sys/xdg.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-/* FIXME move all of this shit out of here. it does not belong here */
+#define TOKEN "yukino"
+
 static void on_response(GDBusConnection *conn, const gchar *sender,
 			const gchar *path, const gchar *iface, const gchar *signal,
 			GVariant *params, gpointer user_data)
 {
 	struct yukino_xdg *data = user_data;
 	guint32 response;
-	g_autoptr(GVariant) results = NULL;
+	GVariant *results = NULL;
 	const gchar *uri;
+	yukino_result_t r;
 
 	g_variant_get(params, "(u@a{sv})", &response, &results);
 
 	if (response == 0 && g_variant_lookup(results, "uri", "&s", &uri)) {
 		uint8_t *full_img = NULL;
+		int w = 0, h = 0, channels = 0;
 
-		/* FIXME decode URI (maybe glib can do this) */
-		gchar *path = g_filename_from_uri(uri, NULL, NULL);
-		if (!path) {
-			data->temp_err = YUKINO_RESULT_UNSUPPORTED;
-			goto done;
+		{
+			char *path;
+
+			r = yukino_uri_get_file_path(uri, &path);
+			if (r < 0) {
+				data->temp_err = r;
+				goto done;
+			}
+
+			full_img = stbi_load(path, &w, &h, &channels, 4);
+			unlink(path);
+			free(path);
 		}
 
-		int w = 0, h = 0, channels = 0;
-		full_img = stbi_load(path, &w, &h, &channels, 4);
-		unlink(path);
-		free(path);
+		if (!full_img)
+			goto done;
 
 		if ((w < data->temp_pixel_func_w) || (h < data->temp_pixel_func_h)) {
 			data->temp_err = YUKINO_RESULT_UNSUPPORTED;
@@ -60,8 +69,6 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 		pxl += data->temp_pixel_func_y * w * 4;
 		for (int y = 0; y < data->temp_pixel_func_h; y++) {
 			for (int x = 0; x < data->temp_pixel_func_w; x++) {
-				yukino_result_t r;
-
 				r = data->temp_pixel_func(
 					data->temp_pixel_func_data,
 					pxl + (x * 4));
@@ -73,13 +80,14 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 			pxl += w * 4;
 		}
 
-		done:
+done:
 		free(full_img);
 	} else {
 		g_print("Screenshot failed/cancelled (response=%u)\n",
 			response);
 	}
 
+	g_variant_unref(results);
 	g_main_loop_quit(data->loop);
 }
 
@@ -97,32 +105,53 @@ yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x,
 	conn->temp_pixel_func_data = userdata;
 	conn->temp_err = YUKINO_RESULT_OK;
 
-	/* Predict request path: unique name ":1.234" -> "1_234" */
-	g_autofree gchar *sender = g_strdup(
-		g_dbus_connection_get_unique_name(conn->conn) + 1);
-	g_strdelimit(sender, ".", '_');
-	const gchar *token = "myshot1";
-	g_autofree gchar *req_path = g_strdup_printf(
-		"/org/freedesktop/portal/desktop/request/%s/%s", sender, token);
+	/* boioioioing */
+	{
+		const gchar *uname;
+		gchar *req_path;
 
-	g_dbus_connection_signal_subscribe(conn->conn,
-					   "org.freedesktop.portal.Desktop",
-				    "org.freedesktop.portal.Request", "Response", req_path, NULL,
-				    G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE, on_response,
-				    conn, NULL);
+		uname = g_dbus_connection_get_unique_name(conn->conn);
+		if (!uname)
+			return YUKINO_RESULT_INVALID_PARAM;
+
+		{
+			gchar *sender;
+
+			sender = g_strdup(uname + 1);
+			if (!sender)
+				return YUKINO_RESULT_OUT_OF_MEMORY;
+
+			g_strdelimit(sender, ".", '_');
+
+			req_path = g_strdup_printf(
+				"/org/freedesktop/portal/desktop/request/%s/%s", sender, TOKEN);
+
+			g_free(sender);
+		}
+
+		if (!req_path)
+			return YUKINO_RESULT_OUT_OF_MEMORY;
+
+		g_dbus_connection_signal_subscribe(conn->conn,
+			"org.freedesktop.portal.Desktop",
+			"org.freedesktop.portal.Request", "Response", req_path, NULL,
+			G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE, on_response,
+			conn, NULL);
+
+		g_free(req_path);
+	}
 
 	GVariantBuilder opts;
 	g_variant_builder_init(&opts, G_VARIANT_TYPE_VARDICT);
 	g_variant_builder_add(
-		&opts, "{sv}", "handle_token", g_variant_new_string(token));
+		&opts, "{sv}", "handle_token", g_variant_new_string(TOKEN));
 	g_variant_builder_add(
 		&opts, "{sv}", "interactive", g_variant_new_boolean(FALSE));
 
-	g_autofree gchar *handle = NULL;
 	err = NULL;
 	if (!org_freedesktop_portal_screenshot_call_screenshot_sync(
 		conn->screenshot_proxy, "",
-		g_variant_builder_end(&opts), &handle, NULL, &err)) {
+		g_variant_builder_end(&opts), NULL, NULL, &err)) {
 		g_printerr("Call failed: %s\n", err->message);
 		g_error_free(err);
 		return YUKINO_RESULT_UNSUPPORTED;
