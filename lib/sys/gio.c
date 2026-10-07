@@ -227,30 +227,30 @@ static yukino_result_t yukino_gio_display_resolution(
 	if (dd.monitors_size == 0)
 		return YUKINO_RESULT_UNSUPPORTED;
 
-	// 4. Calculate total desktop dimensions based on individual geometries
 	minx = miny = maxx = maxy = 0;
 
 	scale = 0.0;
 	for (i = 0; i < dd.monitors_size; i++) {
 		struct display_r *m = dd.monitors[i];
+		double s;
 
-		if (m->has_logical_size) {
-			double s;
+		if (!m->has_logical_size)
+			continue;
 
-			/* hahahahahah.. hope it's the same for */
-			s = (double)m->pixel.w / m->logical.w;
-			if (scale < s) scale = s;
-		}
+		/* Round to nearest quarter. This sucks but it makes
+		 * rounding errors (e.g. 1366 * 1.25) a bit less painful */
+		s = round((double)m->pixel.w / m->logical.w * 4) / 4;
+		if (scale < s) scale = s;
 	}
 
 	for (i = 0; i < dd.monitors_size; i++) {
 		struct display_r *m = dd.monitors[i];
 		int32_t x, y, w, h;
 
-		x = roundl(m->logical.x * scale);
-		y = roundl(m->logical.y * scale);
-		w = roundl(m->logical.w * scale);
-		h = roundl(m->logical.h * scale);
+		x = m->logical.x * scale;
+		y = m->logical.y * scale;
+		w = m->logical.w * scale;
+		h = m->logical.h * scale;
 
 		if (x < minx)
 			minx = x;
@@ -299,8 +299,6 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 		int w = 0, h = 0, channels = 0;
 		full_img = stbi_load(path, &w, &h, &channels, 4);
 		unlink(path);
-
-		printf("%d %d\n", w, h);
 
 		if (w < data->temp_pixel_func_w)
 			goto done;
