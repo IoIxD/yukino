@@ -25,6 +25,7 @@ pkg_check_modules(ZLIB zlib)
 pkg_check_modules(GIO gio-2.0 glib-2.0)
 pkg_check_modules(WAYLAND wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner)
+find_program(GDBUS_CODEGEN gdbus-codegen)
 
 # Make these empty for now
 set(LIBRARIES "")
@@ -46,12 +47,34 @@ if(ZLIB_FOUND)
   list(APPEND DEFINES "-DYUKINO_ZLIB=1")
 endif()
 
-if(GIO_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
-  find_program(GDBUS_CODEGEN gdbus-codegen REQUIRED)
+# TODO should prob only do this if it's needed'
+set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${GEN_DIR})
+list(APPEND INCLUDE ${GEN_DIR})
 
-  set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-  file(MAKE_DIRECTORY ${GEN_DIR})
+if(WAYLAND_FOUND AND WAYLAND_SCANNER)
+  function(gen_protocol protocol)
+    message(STATUS "generating ${GEN_DIR}/${protocol}.c")
+    add_custom_command(
+        OUTPUT ${GEN_DIR}/${protocol}.c ${GEN_DIR}/${protocol}.h
+        COMMAND ${WAYLAND_SCANNER} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.h
+        COMMAND ${WAYLAND_SCANNER} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml
+        VERBATIM
+    )
+    list(APPEND SRC_FILES "${GEN_DIR}/${protocol}.c" "${GEN_DIR}/${protocol}.h")
+    set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
+  endfunction()
 
+  gen_protocol(xdg-output-unstable-v1)
+
+  list(APPEND LIBRARIES ${WAYLAND_LINK_LIBRARIES})
+  list(APPEND INCLUDE ${WAYLAND_INCLUDE_DIRS})
+  list(APPEND DEFINES "-DYUKINO_WAYLAND=1")
+  list(APPEND SRC_FILES sys/wayland.c)
+endif()
+
+if(GIO_FOUND AND GDBUS_CODEGEN)
   function(gen_iface iface)
     message(STATUS "generating ${GEN_DIR}/${iface}.c")
     add_custom_command(
@@ -66,32 +89,19 @@ if(GIO_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
     set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
   endfunction()
 
-  function(gen_protocol protocol)
-    message(STATUS "generating ${GEN_DIR}/${protocol}.c")
-    add_custom_command(
-        OUTPUT ${GEN_DIR}/${protocol}.c ${GEN_DIR}/${protocol}.h
-        COMMAND ${WAYLAND_SCANNER} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.h
-        COMMAND ${WAYLAND_SCANNER} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.c
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml
-        VERBATIM
-    )
-    list(APPEND SRC_FILES "${GEN_DIR}/${protocol}.c" "${GEN_DIR}/${protocol}.h")
-    set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
-  endfunction()
-
   gen_iface(org.freedesktop.portal.Screenshot)
   gen_iface(org.freedesktop.portal.Request)
-  gen_protocol(xdg-output-unstable-v1)
 
-  list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES} ${WAYLAND_LINK_LIBRARIES})
+  list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES})
+  list(APPEND INCLUDE ${GIO_INCLUDE_DIRS})
+  list(APPEND DEFINES "-DYUKINO_XDG=1")
+  list(APPEND SRC_FILES sys/xdg.c)
+endif()
+
+if(GIO_FOUND AND GDBUS_CODEGEN AND WAYLAND_FOUND AND WAYLAND_SCANNER)
   list(APPEND LIBRARIES m)
-  list(APPEND INCLUDE ${GIO_INCLUDE_DIRS} ${WAYLAND_INCLUDE_DIRS})
-  list(APPEND INCLUDE ${GEN_DIR})
   list(APPEND DEFINES "-DYUKINO_GIO=1")
   list(APPEND SRC_FILES sys/gio.c)
-
-  message(STATUS "${SRC_FILES}")
-
 endif()
 
 add_library(libyukino ${SRC_FILES})
