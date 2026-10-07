@@ -28,6 +28,8 @@ struct yukino_wayland {
 	struct wl_display *display;
 };
 
+/* This should only be used as a last resort as it's somewhat inaccurate.
+ * Due to the way Things work there are rounding errors that accumulate. */
 yukino_result_t yukino_wayland_display_resolution(
 	struct yukino_wayland *wl, uint32_t *w, uint32_t *h);
 yukino_result_t yukino_wayland_init(struct yukino_wayland *wl);

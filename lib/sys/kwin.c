@@ -420,6 +420,8 @@ yukino_result_t yukino_kwin_window_iter(
 yukino_result_t yukino_kwin_window_iter_end(
 	struct yukino_kwin *kwi, yukino_window_iter_t *wi)
 {
+	/* Err, might want to empty the message queue?
+	 * The pointer is not unique! It can be reused! */
 	if (wi->pending)
 		dbus_pending_call_unref(wi->pending);
 

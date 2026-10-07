@@ -30,6 +30,15 @@ struct yukino_connection_data {
 	struct yukino_wayland wl;
 	struct yukino_xdg xdg;
 	struct yukino_kwin kwi;
+
+	unsigned int have_xdg : 1;
+	unsigned int have_kwin : 1;
+	unsigned int have_wl : 1;
+
+	/* Use KWin window iter and geometry functions.
+	 * This is different from have_kwin as we might be able to
+	 * initialize kwin but it won't actually work if we try. */
+	unsigned int use_kwin : 1;
 };
 
 #define YUKINO_CONNECTION_DATA 1
@@ -37,9 +46,9 @@ struct yukino_connection_data {
 
 static yukino_result_t yukino_gio_disconnect(yukino_connection_t *conn)
 {
-	yukino_kwin_quit(&conn->conn_data.kwi);
-	yukino_wayland_quit(&conn->conn_data.wl);
-	yukino_xdg_quit(&conn->conn_data.xdg);
+	if (conn->conn_data.have_kwin) yukino_kwin_quit(&conn->conn_data.kwi);
+	if (conn->conn_data.have_wl) yukino_wayland_quit(&conn->conn_data.wl);
+	if (conn->conn_data.have_xdg) yukino_xdg_quit(&conn->conn_data.xdg);
 	free(conn);
 	return YUKINO_RESULT_OK;
 }
@@ -47,57 +56,82 @@ static yukino_result_t yukino_gio_disconnect(yukino_connection_t *conn)
 static yukino_result_t yukino_gio_display_resolution(
 	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
 {
-	return yukino_wayland_display_resolution(&conn->conn_data.wl, w, h);
+	/* Very likely to be more accurate */
+	if (conn->conn_data.have_xdg)
+		return yukino_xdg_display_resolution(&conn->conn_data.xdg, w, h);
+
+	if (conn->conn_data.have_wl)
+		return yukino_wayland_display_resolution(&conn->conn_data.wl, w, h);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 /* ------------------------------------------------------------------------ */
 
+/* Can't lock here */
 static yukino_result_t yukino_gio_lock(yukino_connection_t *conn)
 {
-	return YUKINO_RESULT_OK;
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_unlock(yukino_connection_t *conn)
 {
-	return YUKINO_RESULT_OK;
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_take(yukino_connection_t *conn, uint32_t x,
 	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
 	void *userdata)
 {
-	return yukino_xdg_take(
-		&conn->conn_data.xdg, x, y, w, h, pixel_func, userdata);
+	if (conn->conn_data.have_xdg)
+		return yukino_xdg_take(&conn->conn_data.xdg, x, y, w, h, pixel_func, userdata);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_window_iter_start(yukino_connection_t *conn,
 	const yukino_window_t *win, yukino_window_iter_t **pwi)
 {
-	return yukino_kwin_window_iter_start(&conn->conn_data.kwi, win, pwi);
+	if (conn->conn_data.use_kwin)
+		return yukino_kwin_window_iter_start(&conn->conn_data.kwi, win, pwi);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_window_iter(
 	yukino_connection_t *conn, yukino_window_iter_t *wi, yukino_window_t *pw)
 {
-	return yukino_kwin_window_iter(&conn->conn_data.kwi, wi, pw);
+	if (conn->conn_data.use_kwin)
+		return yukino_kwin_window_iter(&conn->conn_data.kwi, wi, pw);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_window_iter_end(
 	yukino_connection_t *conn, yukino_window_iter_t *wi)
 {
-	return yukino_kwin_window_iter_end(&conn->conn_data.kwi, wi);
+	if (conn->conn_data.use_kwin)
+		return yukino_kwin_window_iter_end(&conn->conn_data.kwi, wi);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_window_position(
 	yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr)
 {
-	return yukino_kwin_window_position(&conn->conn_data.kwi, win, pr);
+	if (conn->conn_data.use_kwin)
+		return yukino_kwin_window_position(&conn->conn_data.kwi, win, pr);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 static yukino_result_t yukino_gio_window_decorated_position(
 	yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr)
 {
-	return yukino_kwin_window_decorated_position(&conn->conn_data.kwi, win, pr);
+	if (conn->conn_data.use_kwin)
+		return yukino_kwin_window_decorated_position(&conn->conn_data.kwi, win, pr);
+
+	return YUKINO_RESULT_UNSUPPORTED;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -112,22 +146,39 @@ yukino_result_t yukino_gio_connect(yukino_connection_t **pconn)
 	if (!conn)
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 
-	if ((r = yukino_xdg_init(&conn->conn_data.xdg)) < 0) {
+	if (yukino_wayland_init(&conn->conn_data.wl) < 0) {
+		/* No point */
 		free(conn);
-		return r;
+		return YUKINO_RESULT_UNSUPPORTED;
+	}
+	conn->conn_data.have_wl = 1;
+
+	if (yukino_xdg_init(&conn->conn_data.xdg) >= 0)
+		conn->conn_data.have_xdg = 1;
+
+	if (yukino_kwin_init(&conn->conn_data.kwi) >= 0)
+		conn->conn_data.have_kwin = 1;
+
+	if (!conn->conn_data.have_wl && !conn->conn_data.have_kwin && !conn->conn_data.have_xdg) {
+		/* Well fuck */
+		free(conn);
+		return YUKINO_RESULT_UNSUPPORTED;
 	}
 
-	if ((r = yukino_wayland_init(&conn->conn_data.wl)) < 0) {
-		yukino_xdg_quit(&conn->conn_data.xdg);
-		free(conn);
-		return r;
-	}
+	/* Now, check whether kwin actually works */
+	if (conn->conn_data.have_kwin) {
+		yukino_window_iter_t *wi;
 
-	if ((r = yukino_kwin_init(&conn->conn_data.kwi)) < 0) {
-		yukino_wayland_quit(&conn->conn_data.wl);
-		yukino_xdg_quit(&conn->conn_data.xdg);
-		free(conn);
-		return r;
+		if (yukino_kwin_window_iter_start(&conn->conn_data.kwi, NULL, &wi) >= 0) {
+			yukino_window_t win;
+
+			while ((r = yukino_kwin_window_iter(&conn->conn_data.kwi, wi, &win)) == YUKINO_RESULT_OK);
+
+			if (r == YUKINO_RESULT_DONE)
+				conn->conn_data.use_kwin = 1;
+
+			yukino_kwin_window_iter_end(&conn->conn_data.kwi, wi);
+		}
 	}
 
 	/* Fill the vtable */
