@@ -31,6 +31,9 @@ struct yukino_xdg {
 	DBusConnection *conn;
 };
 
+/* This works, but it's fairly inefficient as it takes a screenshot ;). */
+yukino_result_t yukino_xdg_display_resolution(
+	struct yukino_xdg *wl, uint32_t *w, uint32_t *h);
 yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
 	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
 yukino_result_t yukino_xdg_init(struct yukino_xdg *xdg);
