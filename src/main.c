@@ -18,6 +18,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_render.h>
 
 #include "yukino.h"
 
@@ -485,25 +486,20 @@ int main(int argc, char *argv[])
 	do {
 		float mx, my;
 		yukino_rect_t w;
-		int query = 0;
-		SDL_FRect *psel;
+		SDL_FRect rendsel;
+		float scale_to_render, scale_from_render;
 
 		SDL_GetMouseState(&mx, &my);
 
 		/* FIXME wayland doesn't work this way */
 		SDL_RenderCoordinatesFromWindow(ren, mx, my, &mx, &my);
 
-		query = windows_query_at_point(mx, my, &w);
-
 		/* Adjust selection */
 		if (drag) {
-			SDL_FPoint point_rend[POINTS_MAX_];
-			for (int i = 0; i < POINTS_MAX_; i++)
-				SDL_RenderCoordinatesFromWindow(ren, points[i].x, points[i].y, &point_rend[i].x, &point_rend[i].y);
 			/* Lol wow SDL has a function for this */
 			SDL_GetRectEnclosingPointsFloat(
-				point_rend, POINTS_MAX_, NULL, &sel);
-		} else if (query == YUKINO_RESULT_OK) {
+				points, POINTS_MAX_, NULL, &sel);
+		} else if (windows_query_at_point(mx, my, &w) == YUKINO_RESULT_OK) {
 			/* This is not right (sometimes...) */
 			pixels_to_points(&sel, &w, 1.0);
 		} else {
@@ -513,7 +509,17 @@ int main(int argc, char *argv[])
 			sel.h = sur->h;
 		}
 
+		int www,hhh;
+		SDL_GetRenderOutputSize(ren, &www, &hhh);
+		scale_to_render = (float)www / sur->w;
+		scale_from_render = (float)sur->w / www;
+
 #ifdef SDL_USE_RENDERER
+		rendsel.x = sel.x * scale_to_render;
+		rendsel.y = sel.y * scale_to_render;
+		rendsel.w = sel.w * scale_to_render;
+		rendsel.h = sel.h * scale_to_render;
+
 		/* now we begin our blitting journey */
 		SDL_RenderClear(ren);
 
@@ -524,7 +530,7 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, NULL, NULL);
 
 		SDL_SetTextureColorMod(tex, 255, 255, 255);
-		SDL_RenderTexture(ren, tex, &sel, &sel);
+		SDL_RenderTexture(ren, tex, &sel, &rendsel);
 
 		SDL_RenderPresent(ren);
 #else
@@ -547,14 +553,16 @@ int main(int argc, char *argv[])
 		switch (ev.type) {
 		case SDL_EVENT_MOUSE_BUTTON_DOWN:
 			down = 1;
-			points[POINTS_DOWN].x = ev.button.x;
-			points[POINTS_DOWN].y = ev.button.y;
+			SDL_RenderCoordinatesFromWindow(ren, ev.button.x, ev.button.y, &points[POINTS_DOWN].x, &points[POINTS_DOWN].y);
+			points[POINTS_DOWN].x *= scale_from_render;
+			points[POINTS_DOWN].y *= scale_from_render;
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
 			if (down)
 				drag = 1;
-			points[POINTS_DRAG].x = ev.motion.x;
-			points[POINTS_DRAG].y = ev.motion.y;
+			SDL_RenderCoordinatesFromWindow(ren, ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x, &points[POINTS_DRAG].y);
+			points[POINTS_DRAG].x *= scale_from_render;
+			points[POINTS_DRAG].y *= scale_from_render;
 			break;
 		case SDL_EVENT_KEY_DOWN:
 			if (ev.key.key == SDLK_ESCAPE) {

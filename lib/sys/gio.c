@@ -207,7 +207,7 @@ static yukino_result_t yukino_gio_display_resolution(
 	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
 {
 	struct display_data dd;
-	double minx, miny, maxx, maxy;
+	int32_t minx, miny, maxx, maxy;
 	size_t i;
 	double scale;
 
@@ -240,19 +240,17 @@ static yukino_result_t yukino_gio_display_resolution(
 			/* hahahahahah.. hope it's the same for */
 			s = (double)m->pixel.w / m->logical.w;
 			if (scale < s) scale = s;
-			s = (double)m->pixel.h / m->logical.h;
-			if (scale < s) scale = s;
 		}
 	}
 
 	for (i = 0; i < dd.monitors_size; i++) {
 		struct display_r *m = dd.monitors[i];
-		double x, y, w, h;
+		int32_t x, y, w, h;
 
-		x = m->logical.x * scale;
-		y = m->logical.y * scale;
-		w = m->logical.w * scale;
-		h = m->logical.h * scale;
+		x = roundl(m->logical.x * scale);
+		y = roundl(m->logical.y * scale);
+		w = roundl(m->logical.w * scale);
+		h = roundl(m->logical.h * scale);
 
 		if (x < minx)
 			minx = x;
@@ -267,8 +265,8 @@ static yukino_result_t yukino_gio_display_resolution(
 	}
 	free(dd.monitors);
 
-	int32_t total_width = roundl(maxx - minx);
-	int32_t total_height = roundl(maxy - miny);
+	int32_t total_width = maxx - minx;
+	int32_t total_height = maxy - miny;
 
 	*w = total_width;
 	*h = total_height;
@@ -301,6 +299,8 @@ static void on_response(GDBusConnection *conn, const gchar *sender,
 		int w = 0, h = 0, channels = 0;
 		full_img = stbi_load(path, &w, &h, &channels, 4);
 		unlink(path);
+
+		printf("%d %d\n", w, h);
 
 		if (w < data->temp_pixel_func_w)
 			goto done;
