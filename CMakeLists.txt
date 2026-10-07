@@ -44,11 +44,11 @@ if(WAYLAND_FOUND AND WAYLAND_PROTOCOLS_FOUND AND WAYLAND_SCANNER)
   set(GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
   file(MAKE_DIRECTORY ${GEN_DIR})
 
-  function(gen_protocol xml name)
+  function(gen_protocol name)
     add_custom_command(
       OUTPUT ${GEN_DIR}/${name}.c ${GEN_DIR}/${name}.h
-      COMMAND ${WAYLAND_SCANNER} client-header ${xml} ${GEN_DIR}/${name}.h
-      COMMAND ${WAYLAND_SCANNER} private-code ${xml} ${GEN_DIR}/${name}.c
+      COMMAND ${WAYLAND_SCANNER} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${name}.xml ${GEN_DIR}/${name}.h
+      COMMAND ${WAYLAND_SCANNER} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${name}.xml ${GEN_DIR}/${name}.c
       DEPENDS ${xml}
       VERBATIM
     )
@@ -57,12 +57,9 @@ if(WAYLAND_FOUND AND WAYLAND_PROTOCOLS_FOUND AND WAYLAND_SCANNER)
   endfunction()
 
   # layer shell's get_popup references xdg_popup, so xdg-shell is needed too
-  gen_protocol(${CMAKE_CURRENT_SOURCE_DIR}/protocol/wlr-layer-shell-unstable-v1.xml
-               wlr-layer-shell-unstable-v1)
-  gen_protocol(${WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell/xdg-shell.xml
-               xdg-shell)
-  gen_protocol(${WAYLAND_PROTOCOLS_DIR}/unstable/xdg-output/xdg-output-unstable-v1.xml
-               xdg-output-unstable-v1)
+  gen_protocol(wlr-layer-shell-unstable-v1)
+  gen_protocol(xdg-shell)
+  gen_protocol(xdg-output-unstable-v1)
 
   list(APPEND SRC_FILES src/layer_shell.c)
   list(APPEND LIBRARIES ${WAYLAND_LINK_LIBRARIES})

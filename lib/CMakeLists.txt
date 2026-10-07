@@ -58,21 +58,21 @@ if(GIO_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
       OUTPUT ${GEN_DIR}/${iface}.c ${GEN_DIR}/${iface}.h
       COMMAND ${GDBUS_CODEGEN}
               --generate-c-code ${GEN_DIR}/${iface}
-              /usr/share/dbus-1/interfaces/${iface}.xml
-      DEPENDS /usr/share/dbus-1/interfaces/${iface}.xml
+              ${CMAKE_CURRENT_SOURCE_DIR}/interfaces/${iface}.xml
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/interfaces/${iface}.xml
       COMMENT "Generating GDBus code"
     )
     list(APPEND SRC_FILES "${GEN_DIR}/${iface}.c")
     set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
   endfunction()
 
-  function(gen_protocol status protocol)
+  function(gen_protocol protocol)
     message(STATUS "generating ${GEN_DIR}/${protocol}.c")
     add_custom_command(
         OUTPUT ${GEN_DIR}/${protocol}.c ${GEN_DIR}/${protocol}.h
-        COMMAND ${WAYLAND_SCANNER} client-header /usr/share/wayland-protocols/${status}/${protocol}.xml ${GEN_DIR}/${protocol}.h
-        COMMAND ${WAYLAND_SCANNER} private-code /usr/share/wayland-protocols/${status}/${protocol}.xml ${GEN_DIR}/${protocol}.c
-        DEPENDS /usr/share/wayland-protocols/${status}/${protocol}.xml
+        COMMAND ${WAYLAND_SCANNER} client-header ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.h
+        COMMAND ${WAYLAND_SCANNER} private-code ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml ${GEN_DIR}/${protocol}.c
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/protocol/${protocol}.xml
         VERBATIM
     )
     list(APPEND SRC_FILES "${GEN_DIR}/${protocol}.c" "${GEN_DIR}/${protocol}.h")
@@ -81,7 +81,7 @@ if(GIO_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
 
   gen_iface(org.freedesktop.portal.Screenshot)
   gen_iface(org.freedesktop.portal.Request)
-  gen_protocol(unstable/xdg-output xdg-output-unstable-v1)
+  gen_protocol(xdg-output-unstable-v1)
 
   list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES} ${WAYLAND_LINK_LIBRARIES})
   list(APPEND LIBRARIES m)
