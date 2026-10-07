@@ -22,15 +22,15 @@
 #include <string.h>
 
 static inline yukino_result_t uri_decode_halfbyte(
-	const unsigned char *p, unsigned char *r)
+	unsigned char p, unsigned char *r)
 {
-	if (*p >= '0' && *p <= '9') {
-		*r = *p - '0';
+	if (p >= '0' && p <= '9') {
+		*r = p - '0';
 		return YUKINO_RESULT_OK;
 	}
 
-	if (*p >= 'A' && *p <= 'F') {
-		*r = *p - 'A' + 10;
+	if (p >= 'A' && p <= 'F') {
+		*r = p - 'A' + 10;
 		return YUKINO_RESULT_OK;
 	}
 
@@ -44,10 +44,10 @@ static inline yukino_result_t uri_decode_byte(
 	unsigned char rr;
 	yukino_result_t res;
 
-	if ((res = uri_decode_halfbyte(p, &rr)) < 0)
+	if ((res = uri_decode_halfbyte(p[0], &rr)) < 0)
 		return res;
 	*r = rr << 4;
-	if ((res = uri_decode_halfbyte(p, &rr)) < 0)
+	if ((res = uri_decode_halfbyte(p[1], &rr)) < 0)
 		return res;
 	*r |= rr;
 
