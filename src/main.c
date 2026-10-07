@@ -39,7 +39,7 @@ struct sdl_take_pixel {
 	int x, y;
 };
 
-static yukino_result_t sdl_take_pixel(void *userdata, unsigned char rgb[3])
+static yukino_result_t sdl_take_pixel(void *userdata, const unsigned char rgb[3])
 {
 	struct sdl_take_pixel *sur = userdata;
 	uint32_t *px;

@@ -124,7 +124,7 @@ YUKINO_EXTERN yukino_result_t yukino_unlock(yukino_connection_t *conn);
 
 /* writes a pixel value */
 typedef yukino_result_t (*yukino_pixel_proc_t)(
-	void *userdata, unsigned char rgb[3]);
+	void *userdata, const unsigned char rgb[3]);
 
 /* writes bytes ... */
 typedef yukino_result_t (*yukino_write_cb)(

@@ -237,7 +237,7 @@ static yukino_result_t png_chunk_tail(struct png *png)
 	return png_write_u32be(png, ~png->crc);
 }
 
-static yukino_result_t png_cb(void *userdata, unsigned char rgb[3])
+static yukino_result_t png_cb(void *userdata, const unsigned char rgb[3])
 {
 	struct png *ud = userdata;
 	yukino_result_t r;

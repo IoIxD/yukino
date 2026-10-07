@@ -70,16 +70,16 @@ YUKINO_INLINE yukino_result_t bmp_write_i32(struct bmp *bmp, int32_t x)
 	return bmp_write_u32(bmp, *(uint32_t *)&x);
 }
 
-static yukino_result_t bmp_cb(void *userdata, unsigned char rgb[3])
+static yukino_result_t bmp_cb(void *userdata, const unsigned char rgb_[3])
 {
 	struct bmp *bmp = userdata;
 	yukino_result_t r;
-	unsigned char tmp;
+	unsigned char rgb[3];
 
 	/* swap it around */
-	tmp = rgb[0];
-	rgb[0] = rgb[2];
-	rgb[2] = tmp;
+	rgb[0] = rgb_[2];
+	rgb[1] = rgb_[1];
+	rgb[2] = rgb_[0];
 
 	/* 24-bit */
 	R_ASSERT(bmp_write(bmp, rgb, 3));

@@ -24,7 +24,7 @@ struct cbuserdata {
 	void *userdata;
 };
 
-static yukino_result_t ppm_cb(void *userdata, unsigned char rgb[3])
+static yukino_result_t ppm_cb(void *userdata, const unsigned char rgb[3])
 {
 	struct cbuserdata *ud = userdata;
 
