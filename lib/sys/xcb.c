@@ -104,8 +104,7 @@ static xcb_visualtype_t *find_visual_for_window(
 	xcb_visualtype_t *r;
 
 	cookie = xcb_get_window_attributes(conn->conn_data.conn, win);
-	reply = xcb_get_window_attributes_reply(
-		conn->conn_data.conn, cookie, NULL);
+	reply = xcb_get_window_attributes_reply(conn->conn_data.conn, cookie, NULL);
 
 	if (!reply)
 		return NULL;
@@ -187,8 +186,8 @@ static yukino_result_t yukino_xcb_window_iter_start(yukino_connection_t *conn,
 
 		wi->u.nlist.cookie = xcb_get_property(conn->conn_data.conn, 0,
 			conn->conn_data.default_display_screen->root,
-			conn->conn_data.atoms[ATOM_NET_CLIENT_LIST_STACKING],
-			XCB_ATOM_ANY, 0L, UINT_MAX);
+			conn->conn_data.atoms[ATOM_NET_CLIENT_LIST_STACKING], XCB_ATOM_ANY,
+			0L, UINT_MAX);
 	} else {
 		query_tree(conn, wi, win);
 	}
@@ -198,8 +197,8 @@ static yukino_result_t yukino_xcb_window_iter_start(yukino_connection_t *conn,
 	return YUKINO_RESULT_OK;
 }
 
-static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
-	yukino_window_iter_t *wi, yukino_window_t *pw)
+static yukino_result_t yukino_xcb_window_iter(
+	yukino_connection_t *conn, yukino_window_iter_t *wi, yukino_window_t *pw)
 {
 	if (!wi || !pw)
 		return YUKINO_RESULT_INVALID_PARAM;
@@ -210,11 +209,9 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 			wi->u.nlist.reply = xcb_get_property_reply(
 				conn->conn_data.conn, wi->u.nlist.cookie, NULL);
 			if (wi->u.nlist.reply) {
-				wi->w = xcb_get_property_value(
-					wi->u.nlist.reply);
-				wi->wlen = xcb_get_property_value_length(
-						   wi->u.nlist.reply)
-					   / sizeof(xcb_window_t);
+				wi->w = xcb_get_property_value(wi->u.nlist.reply);
+				wi->wlen = xcb_get_property_value_length(wi->u.nlist.reply)
+					/ sizeof(xcb_window_t);
 				break;
 			}
 
@@ -228,8 +225,7 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 				return YUKINO_RESULT_UNSUPPORTED;
 
 			wi->w = xcb_query_tree_children(wi->u.qtree.reply);
-			wi->wlen = xcb_query_tree_children_length(
-				wi->u.qtree.reply);
+			wi->wlen = xcb_query_tree_children_length(wi->u.qtree.reply);
 			break;
 		}
 
@@ -240,8 +236,8 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 
 			/* Could you pay me in advance? */
 			for (i = 0; i < wi->wlen; i++)
-				wi->wacs[i] = xcb_get_window_attributes(
-					conn->conn_data.conn, wi->w[i]);
+				wi->wacs[i]
+					= xcb_get_window_attributes(conn->conn_data.conn, wi->w[i]);
 		}
 	}
 
@@ -249,10 +245,9 @@ static yukino_result_t yukino_xcb_window_iter(yukino_connection_t *conn,
 		xcb_get_window_attributes_cookie_t wacookie;
 		xcb_get_window_attributes_reply_t *wareply;
 
-		wacookie = (wi->wacs) ? wi->wacs[wi->wit]
-				      : xcb_get_window_attributes(
-						conn->conn_data.conn,
-						wi->w[wi->wit]);
+		wacookie = (wi->wacs)
+			? wi->wacs[wi->wit]
+			: xcb_get_window_attributes(conn->conn_data.conn, wi->w[wi->wit]);
 
 		wareply = xcb_get_window_attributes_reply(
 			conn->conn_data.conn, wacookie, NULL);
@@ -302,8 +297,8 @@ static yukino_result_t yukino_xcb_window_position(
 		conn->conn_data.default_display_screen->root, 0, 0);
 
 	reply = xcb_get_geometry_reply(conn->conn_data.conn, cookie, NULL);
-	trreply = xcb_translate_coordinates_reply(
-		conn->conn_data.conn, trcookie, NULL);
+	trreply
+		= xcb_translate_coordinates_reply(conn->conn_data.conn, trcookie, NULL);
 	if (!reply || !trreply) {
 		free(reply);
 		free(trreply);
@@ -321,8 +316,6 @@ static yukino_result_t yukino_xcb_window_position(
 	return YUKINO_RESULT_OK;
 }
 
-#include <stdio.h>
-
 static yukino_result_t yukino_xcb_window_decorated_position(
 	yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr)
 {
@@ -338,8 +331,7 @@ static yukino_result_t yukino_xcb_window_decorated_position(
 	if ((r = yukino_xcb_window_position(conn, win, pr)) < 0)
 		return r;
 
-	decreply
-		= xcb_get_property_reply(conn->conn_data.conn, deccookie, NULL);
+	decreply = xcb_get_property_reply(conn->conn_data.conn, deccookie, NULL);
 	if (!decreply)
 		return YUKINO_RESULT_UNSUPPORTED;
 
@@ -447,8 +439,8 @@ static yukino_result_t yukino_xcb_take_window(yukino_connection_t *conn,
 #undef FILL
 	}
 
-	cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
-		win, x, y, w, h, 0xFFFFFFFF);
+	cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win,
+		x, y, w, h, 0xFFFFFFFF);
 
 	reply = xcb_get_image_reply(conn->conn_data.conn, cookie, NULL);
 	if (!reply)
@@ -472,8 +464,7 @@ static yukino_result_t yukino_xcb_take_window(yukino_connection_t *conn,
 		stride = stride + (stride % fmt->scanline_pad);
 		stride >>= 3;
 
-		if ((bpp > 32)
-			|| (xcb_get_image_data_length(reply) != (h * stride))) {
+		if ((bpp > 32) || (xcb_get_image_data_length(reply) != (h * stride))) {
 			/* something is horribly wrong */
 			free(reply);
 			return YUKINO_RESULT_UNSUPPORTED;
@@ -514,8 +505,8 @@ static yukino_result_t yukino_xcb_take(yukino_connection_t *conn, uint32_t x,
 	void *userdata)
 {
 	return yukino_xcb_take_window(conn,
-		conn->conn_data.default_display_screen->root, x, y, w, h,
-		pixel_func, userdata);
+		conn->conn_data.default_display_screen->root, x, y, w, h, pixel_func,
+		userdata);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -530,16 +521,15 @@ yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn)
 	if (!conn)
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 
-	conn->conn_data.conn
-		= xcb_connect(NULL, &conn->conn_data.default_display);
+	conn->conn_data.conn = xcb_connect(NULL, &conn->conn_data.default_display);
 	if (!conn->conn_data.conn) {
 		free(conn);
 		return YUKINO_RESULT_UNSUPPORTED;
 	}
 
 	for (i = 0; i < ATOM_MAX_; i++)
-		atom_cookies[i] = xcb_intern_atom(conn->conn_data.conn, 1,
-			atom_names[i].len, atom_names[i].name);
+		atom_cookies[i] = xcb_intern_atom(
+			conn->conn_data.conn, 1, atom_names[i].len, atom_names[i].name);
 
 	/* Cache this at startup */
 	conn->conn_data.default_display_screen = screen_of_display(
@@ -565,8 +555,7 @@ yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn)
 		xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(
 			conn->conn_data.conn, atom_cookies[i], NULL);
 
-		conn->conn_data.atoms[i]
-			= (reply) ? reply->atom : XCB_ATOM_NONE;
+		conn->conn_data.atoms[i] = (reply) ? reply->atom : XCB_ATOM_NONE;
 	}
 
 	*pconn = conn;

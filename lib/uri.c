@@ -21,7 +21,8 @@
 
 #include <string.h>
 
-static inline yukino_result_t uri_decode_halfbyte(const unsigned char *p, unsigned char *r)
+static inline yukino_result_t uri_decode_halfbyte(
+	const unsigned char *p, unsigned char *r)
 {
 	if (*p >= '0' && *p <= '9') {
 		*r = *p - '0';
@@ -37,7 +38,8 @@ static inline yukino_result_t uri_decode_halfbyte(const unsigned char *p, unsign
 }
 
 /* Caller must check for length of p is >= 2 */
-static inline yukino_result_t uri_decode_byte(const unsigned char *p, unsigned char *r)
+static inline yukino_result_t uri_decode_byte(
+	const unsigned char *p, unsigned char *r)
 {
 	unsigned char rr;
 	yukino_result_t res;
@@ -52,7 +54,8 @@ static inline yukino_result_t uri_decode_byte(const unsigned char *p, unsigned c
 	return YUKINO_RESULT_OK;
 }
 
-yukino_result_t yukino_uri_decode(const char *p_, size_t len, unsigned char **res, size_t *res_size)
+yukino_result_t yukino_uri_decode(
+	const char *p_, size_t len, unsigned char **res, size_t *res_size)
 {
 	unsigned char *r;
 	size_t i, j;
@@ -103,7 +106,8 @@ yukino_result_t yukino_uri_decode(const char *p_, size_t len, unsigned char **re
 	}
 
 	r[j] = 0;
-	/* Try reallocing to the actual size, if it returns NULL just put the old buffer in */
+	/* Try reallocing to the actual size, if it returns NULL just put the old
+	 * buffer in */
 	*res = realloc(r, j + 1);
 	if (!*res)
 		*res = r;

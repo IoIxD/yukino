@@ -90,8 +90,7 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
 // Callback when a monitor sends its geometry data
 static void output_handle_geometry(void *data, struct wl_output *wl_output,
 	int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
-	int32_t subpixel, const char *make, const char *model,
-	int32_t transform)
+	int32_t subpixel, const char *make, const char *model, int32_t transform)
 {
 	struct display_r *r = data;
 
@@ -143,28 +142,24 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
 	if (strcmp(interface, wl_output_interface.name) == 0) {
 		struct display_r *m;
 
-		state->monitors = realloc(
-			state->monitors, sizeof(struct display_r *)
-						 * (state->monitors_size + 1));
+		state->monitors = realloc(state->monitors,
+			sizeof(struct display_r *) * (state->monitors_size + 1));
 		m = state->monitors[state->monitors_size]
 			= calloc(1, sizeof(struct display_r));
 
-		m->output = wl_registry_bind(
-			registry, id, &wl_output_interface, 2);
+		m->output = wl_registry_bind(registry, id, &wl_output_interface, 2);
 		wl_output_add_listener(m->output, &output_listener, m);
 
-		m->xdg_output = zxdg_output_manager_v1_get_xdg_output(
-			state->om, m->output);
-		zxdg_output_v1_add_listener(
-			m->xdg_output, &xdg_output_listener, m);
+		m->xdg_output
+			= zxdg_output_manager_v1_get_xdg_output(state->om, m->output);
+		zxdg_output_v1_add_listener(m->xdg_output, &xdg_output_listener, m);
 
 		state->monitors_size++;
-	} else if (strcmp(interface, zxdg_output_manager_v1_interface.name)
-		   == 0) {
+	} else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
 		if (version > 3)
 			version = 3;
-		state->om = wl_registry_bind(registry, id,
-			&zxdg_output_manager_v1_interface, version);
+		state->om = wl_registry_bind(
+			registry, id, &zxdg_output_manager_v1_interface, version);
 	}
 }
 
@@ -189,8 +184,7 @@ yukino_result_t yukino_wayland_display_resolution(
 	memset(&dd, 0, sizeof(dd));
 
 	{
-		struct wl_registry *registry
-			= wl_display_get_registry(wl->display);
+		struct wl_registry *registry = wl_display_get_registry(wl->display);
 		wl_registry_add_listener(registry, &registry_listener, &dd);
 
 		wl_display_roundtrip(wl->display);

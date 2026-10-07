@@ -90,8 +90,8 @@ YUKINO_EXTERN yukino_result_t yukino_window_iter_start(
 	yukino_connection_t *conn,
 	const yukino_window_t *win, /* NULL == operate on the root window */
 	yukino_window_iter_t **pwi);
-YUKINO_EXTERN yukino_result_t yukino_window_iter(yukino_connection_t *conn,
-	yukino_window_iter_t *wi, yukino_window_t *pw);
+YUKINO_EXTERN yukino_result_t yukino_window_iter(
+	yukino_connection_t *conn, yukino_window_iter_t *wi, yukino_window_t *pw);
 YUKINO_EXTERN yukino_result_t yukino_window_iter_end(
 	yukino_connection_t *conn, yukino_window_iter_t *wi);
 
@@ -138,9 +138,8 @@ typedef yukino_result_t (*yukino_image_proc_t)(void *conn, uint32_t x,
 /* writes an image in the given format */
 #define YUKINO_WRITE(N) \
 	YUKINO_EXTERN yukino_result_t yukino_write_##N(uint32_t x, uint32_t y, \
-		uint32_t w, uint32_t h, yukino_write_cb write_cb, \
-		void *write_data, yukino_image_proc_t take_cb, \
-		void *take_data);
+		uint32_t w, uint32_t h, yukino_write_cb write_cb, void *write_data, \
+		yukino_image_proc_t take_cb, void *take_data);
 
 YUKINO_WRITE(bmp)
 YUKINO_WRITE(png)

@@ -16,24 +16,25 @@
  * License along with this library; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef YUKINO_SYS_XDG_H_
-#define YUKINO_SYS_XDG_H_
-
 #include "yukino.h"
+#include "yukino_c.h"
 
-#include <dbus/dbus.h>
+#include <fcntl.h>
+#include <unistd.h>
 
-/* This shit is for the xdg screenshot portal. Because wayland doesn't provide
- * this functionality automatically we are forced to basically figure out what
- * works, and this happens to be somewhat standard. */
+yukino_result_t yukino_random(void *x, size_t n)
+{
+	int fd;
+	ssize_t nr;
 
-struct yukino_xdg {
-	DBusConnection *conn;
-};
+	fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return -1;
 
-yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
-	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
-yukino_result_t yukino_xdg_init(struct yukino_xdg *xdg);
-void yukino_xdg_quit(struct yukino_xdg *xdg);
+	nr = read(fd, x, n);
+	close(fd);
+	if (nr != n)
+		return -1;
 
-#endif
+	return 0;
+}

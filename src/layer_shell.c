@@ -123,12 +123,14 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
 	.description = xdg_output_description,
 };
 
-static int get_desktop_rect_in_points(struct output *o, size_t os, yukino_rect_t *r)
+static int get_desktop_rect_in_points(
+	struct output *o, size_t os, yukino_rect_t *r)
 {
 	size_t i;
 	int32_t x0, x1, y0, y1;
 
-	if (!os) return -1;
+	if (!os)
+		return -1;
 
 	x0 = y0 = INT32_MAX;
 	x1 = y1 = INT32_MIN;
@@ -141,10 +143,14 @@ static int get_desktop_rect_in_points(struct output *o, size_t os, yukino_rect_t
 		dx1 = dx0 + o[i].w;
 		dy1 = dy0 + o[i].h;
 
-		if (x0 > dx0) x0 = dx0;
-		if (x1 < dx1) x1 = dx1;
-		if (y0 > dy0) y0 = dy0;
-		if (y1 < dy1) y1 = dy1;
+		if (x0 > dx0)
+			x0 = dx0;
+		if (x1 < dx1)
+			x1 = dx1;
+		if (y0 > dy0)
+			y0 = dy0;
+		if (y1 < dy1)
+			y1 = dy1;
 	}
 
 	r->x = x0;
@@ -155,8 +161,8 @@ static int get_desktop_rect_in_points(struct output *o, size_t os, yukino_rect_t
 	return 0;
 }
 
-static int check_monitor_in_corner(struct output *o,
-	const yukino_rect_t *desk_rect, uint32_t *flags)
+static int check_monitor_in_corner(
+	struct output *o, const yukino_rect_t *desk_rect, uint32_t *flags)
 {
 	int32_t x0, x1, y0, y1, dx0, dx1, dy0, dy1;
 	uint32_t i, f;
@@ -172,12 +178,12 @@ static int check_monitor_in_corner(struct output *o,
 
 	i = f = 0;
 #define CHECK(coord, pos) \
-do { \
-	if (coord == d##coord) { \
-		f |= ZWLR_LAYER_SURFACE_V1_ANCHOR_##pos; \
-		i++; \
-	} \
-} while (0)
+	do { \
+		if (coord == d##coord) { \
+			f |= ZWLR_LAYER_SURFACE_V1_ANCHOR_##pos; \
+			i++; \
+		} \
+	} while (0)
 	CHECK(x0, LEFT);
 	CHECK(x1, RIGHT);
 	CHECK(y0, TOP);
@@ -221,8 +227,8 @@ static void registry_global(void *data, struct wl_registry *registry,
 		struct output *o;
 		void *old = ls.outputs;
 
-		ls.outputs = realloc(ls.outputs,
-			(ls.outputs_size + 1) * sizeof(*ls.outputs));
+		ls.outputs
+			= realloc(ls.outputs, (ls.outputs_size + 1) * sizeof(*ls.outputs));
 		if (!ls.outputs) {
 			ls.outputs = old;
 			return;
@@ -235,16 +241,16 @@ static void registry_global(void *data, struct wl_registry *registry,
 		o->x = o->y = o->w = o->h = 0;
 		o->xdg_output = NULL;
 		o->version = version;
-		o->output = wl_registry_bind(
-			registry, id, &wl_output_interface, version);
+		o->output
+			= wl_registry_bind(registry, id, &wl_output_interface, version);
 
 		ls.outputs_size++;
 	} else if (SDL_strcmp(interface, zxdg_output_manager_v1_interface.name)
-		   == 0) {
+		== 0) {
 		if (version > 3)
 			version = 3;
-		ls.om = wl_registry_bind(registry, id,
-			&zxdg_output_manager_v1_interface, version);
+		ls.om = wl_registry_bind(
+			registry, id, &zxdg_output_manager_v1_interface, version);
 	}
 }
 
@@ -291,8 +297,8 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 		for (i = 0; i < ls.outputs_size; i++) {
 			struct output *o = &ls.outputs[i];
 
-			o->xdg_output = zxdg_output_manager_v1_get_xdg_output(
-				ls.om, o->output);
+			o->xdg_output
+				= zxdg_output_manager_v1_get_xdg_output(ls.om, o->output);
 			/* index rather than pointer, since realloc moves
 			 * things */
 			zxdg_output_v1_add_listener(
@@ -316,9 +322,8 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 
 	/* map onto whichever display sits at (or nearest) the origin. if
 	 * there are no outputs this is NULL, which lets the compositor pick */
-	ls.layer = zwlr_layer_shell_v1_get_layer_surface(ls.shell, surface,
-		output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
-		"yukino");
+	ls.layer = zwlr_layer_shell_v1_get_layer_surface(
+		ls.shell, surface, output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "yukino");
 	zwlr_layer_surface_v1_add_listener(ls.layer, &layer_listener, NULL);
 
 	/* pin to the top left corner (0,0), and ignore everyone else's
@@ -327,8 +332,8 @@ int layer_shell_attach(SDL_Window *win, int w, int h)
 	zwlr_layer_surface_v1_set_margin(ls.layer, 0, 0, 0, 0);
 	zwlr_layer_surface_v1_set_size(ls.layer, w, h);
 	zwlr_layer_surface_v1_set_exclusive_zone(ls.layer, -1);
-	zwlr_layer_surface_v1_set_keyboard_interactivity(ls.layer,
-		ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
+	zwlr_layer_surface_v1_set_keyboard_interactivity(
+		ls.layer, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
 
 	/* initial commit without a buffer, then wait for the configure
 	 * before anything gets rendered into the surface */

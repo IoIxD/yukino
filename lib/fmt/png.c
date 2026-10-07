@@ -66,7 +66,7 @@ YUKINO_INLINE uint32_t png_bswap32be(uint32_t x)
 	const unsigned char *px = (const unsigned char *)&x;
 
 	return (px[3]) | ((uint32_t)px[2] << 8) | ((uint32_t)px[1] << 16)
-	       | ((uint32_t)px[0] << 24);
+		| ((uint32_t)px[0] << 24);
 }
 
 YUKINO_INLINE uint16_t png_bswap16le(uint16_t x)
@@ -125,7 +125,7 @@ static yukino_result_t png_deflate_header_impl(
 YUKINO_INLINE yukino_result_t png_deflate_header(struct png *png, size_t sz)
 {
 	return (sz > 65535) ? png_deflate_header_impl(png, 0, 65535)
-			    : png_deflate_header_impl(png, 1, sz);
+						: png_deflate_header_impl(png, 1, sz);
 }
 #endif
 

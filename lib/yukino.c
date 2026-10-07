@@ -51,7 +51,7 @@ yukino_result_t yukino_display_resolution(
 		ph = &h;
 
 	return conn->display_resolution ? conn->display_resolution(conn, pw, ph)
-					: YUKINO_RESULT_UNSUPPORTED;
+									: YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_disconnect(yukino_connection_t *conn)
@@ -60,7 +60,7 @@ yukino_result_t yukino_disconnect(yukino_connection_t *conn)
 		return YUKINO_RESULT_INVALID_PARAM;
 
 	return conn->disconnect ? conn->disconnect(conn)
-				: YUKINO_RESULT_UNSUPPORTED;
+							: YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_window_iter_start(yukino_connection_t *conn,
@@ -70,17 +70,17 @@ yukino_result_t yukino_window_iter_start(yukino_connection_t *conn,
 		return YUKINO_RESULT_INVALID_PARAM;
 
 	return conn->window_iter_start ? conn->window_iter_start(conn, win, pwi)
-				       : YUKINO_RESULT_UNSUPPORTED;
+								   : YUKINO_RESULT_UNSUPPORTED;
 }
 
-yukino_result_t yukino_window_iter(yukino_connection_t *conn,
-	yukino_window_iter_t *wi, yukino_window_t *win)
+yukino_result_t yukino_window_iter(
+	yukino_connection_t *conn, yukino_window_iter_t *wi, yukino_window_t *win)
 {
 	if (!conn || !wi || !win)
 		return YUKINO_RESULT_INVALID_PARAM;
 
 	return conn->window_iter ? conn->window_iter(conn, wi, win)
-				 : YUKINO_RESULT_UNSUPPORTED;
+							 : YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_window_iter_end(
@@ -90,22 +90,22 @@ yukino_result_t yukino_window_iter_end(
 		return YUKINO_RESULT_INVALID_PARAM;
 
 	return conn->window_iter_end ? conn->window_iter_end(conn, wi)
-				     : YUKINO_RESULT_UNSUPPORTED;
+								 : YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_window_position(
 	yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr)
 {
 	return conn->window_position ? conn->window_position(conn, win, pr)
-				     : YUKINO_RESULT_UNSUPPORTED;
+								 : YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_window_decorated_position(
 	yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr)
 {
 	return conn->window_decorated_position
-		       ? conn->window_decorated_position(conn, win, pr)
-		       : YUKINO_RESULT_UNSUPPORTED;
+		? conn->window_decorated_position(conn, win, pr)
+		: YUKINO_RESULT_UNSUPPORTED;
 }
 
 yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
@@ -113,7 +113,7 @@ yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
 	void *userdata)
 {
 	return conn->take ? conn->take(conn, x, y, w, h, pixel_func, userdata)
-			  : YUKINO_RESULT_UNSUPPORTED;
+					  : YUKINO_RESULT_UNSUPPORTED;
 }
 
 YUKINO_INLINE yukino_result_t screenshot_cb(void *conn, uint32_t x, uint32_t y,

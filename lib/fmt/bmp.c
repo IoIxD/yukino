@@ -44,7 +44,7 @@ YUKINO_INLINE uint32_t bmp_bswap32(uint32_t x)
 	const unsigned char *px = (const unsigned char *)&x;
 
 	return px[0] | ((uint32_t)px[1] << 8) | ((uint32_t)px[2] << 16)
-	       | ((uint32_t)px[3] << 24);
+		| ((uint32_t)px[3] << 24);
 }
 
 YUKINO_INLINE yukino_result_t bmp_write(

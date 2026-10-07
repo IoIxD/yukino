@@ -7,8 +7,12 @@ BasedOnStyle: LLVM
 UseTab: ForContinuationAndIndentation
 PointerAlignment: Right
 ColumnLimit: 80
-IndentWidth: 8
-TabWidth: 8
+# NOTE we actually use 8 for all three of these values, but I have
+# lowered it to 4 to work around a bug regarding if-statement
+# conditional indentation
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
 PPIndentWidth: 1
 
 IndentCaseLabels: false
@@ -16,24 +20,26 @@ IndentAccessModifiers: false
 IndentPPDirectives: AfterHash
 
 BreakBeforeBraces: WebKit
-BreakStringLiterals: true
+BreakStringLiterals: false
 
 AlwaysBreakTemplateDeclarations: true
 
 SpaceAfterTemplateKeyword: false
 
-AlignAfterOpenBracket: false
-ContinuationIndentWidth: 8
+AlignAfterOpenBracket: DontAlign
 
 AlignArrayOfStructures: Left
 AlignEscapedNewlines: DontAlign
 AlignConsecutiveMacros: true
+AlignOperands: DontAlign
 
 AllowShortIfStatementsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: true
 AllowShortFunctionsOnASingleLine: InlineOnly
 AllowShortCaseLabelsOnASingleLine: true
+
+BreakBeforeTernaryOperators: true
 
 QualifierAlignment: Left
 
@@ -48,6 +54,10 @@ SpacesInLineCommentPrefix:
 BreakBeforeBinaryOperators: All
 
 InsertNewlineAtEOF: true
+
+IndentGotoLabels: NoIndent
+
+IndentWrappedFunctionNames: false
 
 # I know better than you do
 AlignTrailingComments: Leave

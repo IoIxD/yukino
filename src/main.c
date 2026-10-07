@@ -39,7 +39,8 @@ struct sdl_take_pixel {
 	int x, y;
 };
 
-static yukino_result_t sdl_take_pixel(void *userdata, const unsigned char rgb[3])
+static yukino_result_t sdl_take_pixel(
+	void *userdata, const unsigned char rgb[3])
 {
 	struct sdl_take_pixel *sur = userdata;
 	uint32_t *px;
@@ -50,17 +51,17 @@ static yukino_result_t sdl_take_pixel(void *userdata, const unsigned char rgb[3]
 	}
 
 	px = (uint32_t *)((char *)sur->sur->pixels + (sur->sur->pitch * sur->y))
-	     + sur->x;
+		+ sur->x;
 
 	*px = 0xFF000000 | ((uint32_t)rgb[2] << 16) | ((uint32_t)rgb[1] << 8)
-	      | rgb[0];
+		| rgb[0];
 
 	sur->x++;
 	return YUKINO_RESULT_OK;
 }
 
-static SDL_Surface *sdl_screenshot(yukino_connection_t *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h)
+static SDL_Surface *sdl_screenshot(
+	yukino_connection_t *conn, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	struct sdl_take_pixel s;
 
@@ -79,8 +80,7 @@ static SDL_Surface *sdl_screenshot(yukino_connection_t *conn, uint32_t x,
 }
 
 /* Takes a screenshot of the whole display */
-static SDL_Surface *sdl_screenshot_display(
-	yukino_connection_t *conn)
+static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 {
 	yukino_result_t r;
 	uint32_t w, h;
@@ -202,10 +202,8 @@ static void windows_fill(yukino_connection_t *conn)
 		if (windows_size >= windows_alloc) {
 			void *old = windows;
 
-			windows_alloc
-				= (windows_alloc) ? (windows_alloc * 2) : 16;
-			windows = realloc(
-				windows, windows_alloc * sizeof(*windows));
+			windows_alloc = (windows_alloc) ? (windows_alloc * 2) : 16;
+			windows = realloc(windows, windows_alloc * sizeof(*windows));
 
 			if (!windows) {
 				free(old);
@@ -220,8 +218,7 @@ static void windows_fill(yukino_connection_t *conn)
 		if (yukino_window_position(conn, win, &w->rect) < 0)
 			continue; /* ??? */
 
-		if (yukino_window_decorated_position(conn, win, &w->border)
-			>= 0)
+		if (yukino_window_decorated_position(conn, win, &w->border) >= 0)
 			w->have_border = 1;
 		w->win = win;
 
@@ -416,19 +413,18 @@ int main(int argc, char *argv[])
 	{
 		SDL_PropertiesID props = SDL_CreateProperties();
 
-		SDL_SetNumberProperty(props,
-			SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
+		SDL_SetNumberProperty(
+			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
 		SDL_SetNumberProperty(
 			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, desk_res.w);
 		SDL_SetBooleanProperty(
 			props, SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, true);
-		SDL_SetBooleanProperty(props,
-			SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN, true);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN, true);
 		SDL_SetBooleanProperty(
 			props, SDL_PROP_WINDOW_CREATE_BORDERLESS_BOOLEAN, true);
-		SDL_SetBooleanProperty(props,
-			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
-			true);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, true);
 		SDL_SetNumberProperty(
 			props, SDL_PROP_WINDOW_CREATE_X_NUMBER, desk_res.x);
 		SDL_SetNumberProperty(
@@ -444,9 +440,8 @@ int main(int argc, char *argv[])
 		 * because that ends up having the window on only one display,
 		 * which is Not What We Want */
 		if (num_disp == 1) {
-			SDL_SetBooleanProperty(props,
-				SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,
-				true);
+			SDL_SetBooleanProperty(
+				props, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN, true);
 		}
 
 #ifdef YUKINO_LAYER_SHELL
@@ -493,7 +488,7 @@ int main(int argc, char *argv[])
 		Uint64 this_redraw;
 
 		{
-			int www,hhh;
+			int www, hhh;
 			SDL_GetRenderOutputSize(ren, &www, &hhh);
 			scale_to_render = (float)www / sur->w;
 			scale_from_render = (float)sur->w / www;
@@ -501,19 +496,20 @@ int main(int argc, char *argv[])
 
 		switch (ev.type) {
 		case SDL_EVENT_WINDOW_SHOWN:
-		case SDL_EVENT_WINDOW_EXPOSED:
-			redraw = 1;
-			break;
-		case SDL_EVENT_MOUSE_BUTTON_DOWN:
-			down = 1;
-#define SCALE_FROM_WINDOW(x,y,px,py) (SDL_RenderCoordinatesFromWindow(ren, x, y, px, py), *(px) *= scale_from_render, (*py) *= scale_from_render)
-			SCALE_FROM_WINDOW(ev.button.x, ev.button.y, &points[POINTS_DOWN].x, &points[POINTS_DOWN].y);
+		case SDL_EVENT_WINDOW_EXPOSED: redraw = 1; break;
+		case SDL_EVENT_MOUSE_BUTTON_DOWN: down = 1;
+#define SCALE_FROM_WINDOW(x, y, px, py) \
+	(SDL_RenderCoordinatesFromWindow(ren, x, y, px, py), \
+		*(px) *= scale_from_render, (*py) *= scale_from_render)
+			SCALE_FROM_WINDOW(ev.button.x, ev.button.y, &points[POINTS_DOWN].x,
+				&points[POINTS_DOWN].y);
 			redraw = 1;
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
 			if (down)
 				drag = 1;
-			SCALE_FROM_WINDOW(ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x, &points[POINTS_DRAG].y);
+			SCALE_FROM_WINDOW(ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x,
+				&points[POINTS_DRAG].y);
 			redraw = 1;
 			break;
 		case SDL_EVENT_KEY_DOWN:
@@ -522,8 +518,7 @@ int main(int argc, char *argv[])
 				goto out;
 			}
 			break;
-		case SDL_EVENT_MOUSE_BUTTON_UP:
-			goto out;
+		case SDL_EVENT_MOUSE_BUTTON_UP: goto out;
 		}
 
 		if (!redraw)
@@ -538,13 +533,14 @@ int main(int argc, char *argv[])
 		/* Adjust selection */
 		if (drag) {
 			/* Lol wow SDL has a function for this */
-			SDL_GetRectEnclosingPointsFloat(
-				points, POINTS_MAX_, NULL, &sel);
+			SDL_GetRectEnclosingPointsFloat(points, POINTS_MAX_, NULL, &sel);
 		} else {
 			SDL_GetMouseState(&mx, &my);
-			SCALE_FROM_WINDOW(mx, my, &mx, &my);
+			//SCALE_FROM_WINDOW(mx, my, &mx, &my);
 			if (windows_query_at_point(mx, my, &w) == YUKINO_RESULT_OK) {
 				pixels_to_points(&sel, &w, 1.0);
+				SCALE_FROM_WINDOW(sel.x, sel.y, &sel.x, &sel.y);
+				SCALE_FROM_WINDOW(sel.w, sel.h, &sel.w, &sel.h);
 			} else {
 				/* the "selection" is the whole display */
 				sel.x = sel.y = 0;
@@ -599,11 +595,11 @@ out:
 
 		static const SDL_DialogFileFilter filters[] = {
 			{"PNG (Portable Network Graphics)", "png"},
-			{"All files",                       "*"  }
-                };
+            {"All files",                       "*"  }
+        };
 
-		SDL_ShowSaveFileDialog(dialog_cb, (void *)&c, NULL, filters,
-			SDL_arraysize(filters), NULL);
+		SDL_ShowSaveFileDialog(
+			dialog_cb, (void *)&c, NULL, filters, SDL_arraysize(filters), NULL);
 
 		/* Wait until the semaphore is signaled
 		 * ...but we still need to handle events */
@@ -618,7 +614,8 @@ out:
 	/* Save it */
 	if (file) {
 		yukino_rect_t w;
-		points_to_pixels(&w, &sel, 1.0); /* This is in render coordinates, but we need integers */
+		points_to_pixels(&w, &sel,
+			1.0); /* This is in render coordinates, but we need integers */
 		sdl_write_surface_to_png(file, sur, &w);
 		free(file);
 	}

@@ -21,186 +21,380 @@
 
 #include "sys/xdg.h"
 
+#define STBI_ONLY_PNG
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define TOKEN "yukino"
+#include <inttypes.h>
+#include <unistd.h> /* unlink */
 
-static void on_response(GDBusConnection *conn, const gchar *sender,
-			const gchar *path, const gchar *iface, const gchar *signal,
-			GVariant *params, gpointer user_data)
-{
-	struct yukino_xdg *data = user_data;
-	guint32 response;
-	GVariant *results = NULL;
-	const gchar *uri;
-	yukino_result_t r;
+#define TARGET_NONE         0 /* eh */
+#define TARGET_SCREEN       1
+#define TARGET_WINDOW       2
+#define TARGET_AREA         4
+#define TARGET_ACTIVEWINDOW 8
 
-	g_variant_get(params, "(u@a{sv})", &response, &results);
-
-	if (response == 0 && g_variant_lookup(results, "uri", "&s", &uri)) {
-		uint8_t *full_img = NULL;
-		int w = 0, h = 0, channels = 0;
-
-		{
-			char *path;
-
-			r = yukino_uri_get_file_path(uri, &path);
-			if (r < 0) {
-				data->temp_err = r;
-				goto done;
-			}
-
-			full_img = stbi_load(path, &w, &h, &channels, 4);
-			unlink(path);
-			free(path);
-		}
-
-		if (!full_img)
-			goto done;
-
-		if ((w < data->temp_pixel_func_w) || (h < data->temp_pixel_func_h)) {
-			data->temp_err = YUKINO_RESULT_UNSUPPORTED;
-			goto done;
-		}
-
-		const uint8_t *pxl = full_img;
-		pxl += data->temp_pixel_func_x * 4;
-		pxl += data->temp_pixel_func_y * w * 4;
-		for (int y = 0; y < data->temp_pixel_func_h; y++) {
-			for (int x = 0; x < data->temp_pixel_func_w; x++) {
-				r = data->temp_pixel_func(
-					data->temp_pixel_func_data,
-					pxl + (x * 4));
-				if (r < 0) {
-					data->temp_err = r;
-					goto done;
-				}
-			}
-			pxl += w * 4;
-		}
-
-done:
-		free(full_img);
-	} else {
-		g_print("Screenshot failed/cancelled (response=%u)\n",
-			response);
-	}
-
-	g_variant_unref(results);
-	g_main_loop_quit(data->loop);
-}
-
-yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
+static yukino_result_t process_image_uri(const char *uri, uint32_t rx,
+	uint32_t ry, uint32_t rw, uint32_t rh, yukino_pixel_proc_t pixel_func,
 	void *userdata)
 {
-	GError *err;
+	uint8_t *full_img;
+	int w = 0, h = 0, channels = 0;
+	yukino_result_t r;
+	uint32_t x, y;
 
-	conn->temp_pixel_func = pixel_func;
-	conn->temp_pixel_func_x = x;
-	conn->temp_pixel_func_y = y;
-	conn->temp_pixel_func_w = w;
-	conn->temp_pixel_func_h = h;
-	conn->temp_pixel_func_data = userdata;
-	conn->temp_err = YUKINO_RESULT_OK;
-
-	/* boioioioing */
 	{
-		const gchar *uname;
-		gchar *req_path;
+		char *path;
 
-		uname = g_dbus_connection_get_unique_name(conn->conn);
-		if (!uname)
-			return YUKINO_RESULT_INVALID_PARAM;
+		r = yukino_uri_get_file_path(uri, &path);
+		if (r < 0)
+			return r;
 
-		{
-			gchar *sender;
-
-			sender = g_strdup(uname + 1);
-			if (!sender)
-				return YUKINO_RESULT_OUT_OF_MEMORY;
-
-			g_strdelimit(sender, ".", '_');
-
-			req_path = g_strdup_printf(
-				"/org/freedesktop/portal/desktop/request/%s/%s", sender, TOKEN);
-
-			g_free(sender);
-		}
-
-		if (!req_path)
-			return YUKINO_RESULT_OUT_OF_MEMORY;
-
-		g_dbus_connection_signal_subscribe(conn->conn,
-			"org.freedesktop.portal.Desktop",
-			"org.freedesktop.portal.Request", "Response", req_path, NULL,
-			G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE, on_response,
-			conn, NULL);
-
-		g_free(req_path);
+		full_img = stbi_load(path, &w, &h, &channels, 4);
+		unlink(path);
+		free(path);
 	}
 
-	GVariantBuilder opts;
-	g_variant_builder_init(&opts, G_VARIANT_TYPE_VARDICT);
-	g_variant_builder_add(
-		&opts, "{sv}", "handle_token", g_variant_new_string(TOKEN));
-	g_variant_builder_add(
-		&opts, "{sv}", "interactive", g_variant_new_boolean(FALSE));
+	if (!full_img)
+		return r;
 
-	err = NULL;
-	if (!org_freedesktop_portal_screenshot_call_screenshot_sync(
-		conn->screenshot_proxy, "",
-		g_variant_builder_end(&opts), NULL, NULL, &err)) {
-		g_printerr("Call failed: %s\n", err->message);
-		g_error_free(err);
+	if ((w < rw) || (h < rh)) {
+		free(full_img);
+		return r;
+	}
+
+	const uint8_t *pxl = full_img;
+	pxl += rx * 4;
+	pxl += ry * w * 4;
+	for (y = 0; y < rh; y++) {
+		for (x = 0; x < rw; x++) {
+			r = pixel_func(userdata, pxl + (x * 4));
+			if (r < 0) {
+				free(full_img);
+				return r;
+			}
+		}
+		pxl += w * 4;
+	}
+
+	free(full_img);
+
+	return YUKINO_RESULT_OK;
+}
+
+static yukino_result_t subscribe(
+	struct yukino_xdg *conn, const char *request_path)
+{
+	DBusError error;
+	char *match_rule;
+	yukino_result_t r;
+
+	dbus_error_init(&error);
+
+	if (asprintf(&match_rule,
+			"type='signal',interface='org.freedesktop.portal.Request',member='Response',path='%s'",
+			request_path)
+		< 0) {
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+	}
+	dbus_bus_add_match(conn->conn, match_rule, &error);
+
+	free(match_rule);
+	r = (dbus_error_is_set(&error)) ? YUKINO_RESULT_UNSUPPORTED
+									: YUKINO_RESULT_OK;
+	dbus_error_free(&error);
+	return r;
+}
+
+static yukino_result_t predict_req_path(
+	struct yukino_xdg *conn, const char *token, char **res)
+{
+	char *req_path;
+	const char *uname, *uname_suf;
+	yukino_result_t r;
+
+	if (!token)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	uname = dbus_bus_get_unique_name(conn->conn);
+	if (!uname || !*uname)
+		return YUKINO_RESULT_UNSUPPORTED; /* ??? */
+	uname++;
+
+	uname_suf = strchr(uname, '.');
+	if (!uname_suf)
+		return YUKINO_RESULT_UNSUPPORTED;
+	uname_suf++;
+
+	if (asprintf(&req_path,
+			"/org/freedesktop/portal/desktop/request/%.*s_%s/%s",
+			(int)(uname_suf - uname - 1), uname, uname_suf, token)
+		< 0)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	*res = req_path;
+	return YUKINO_RESULT_OK;
+}
+
+static yukino_result_t send_method(struct yukino_xdg *conn, const char *token,
+	uint32_t target, DBusPendingCall **pending)
+{
+	/* Send it off */
+	DBusMessage *msg;
+	DBusMessageIter iter, array_iter, dict_iter, variant_iter;
+
+	msg = dbus_message_new_method_call("org.freedesktop.portal.Desktop",
+		"/org/freedesktop/portal/desktop", "org.freedesktop.portal.Screenshot",
+		"Screenshot");
+	if (!msg)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	dbus_message_iter_init_append(msg, &iter);
+	{
+		static const char *parent_window = "";
+		dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &parent_window);
+	}
+
+	dbus_message_iter_open_container(
+		&iter, DBUS_TYPE_ARRAY, "{sv}", &array_iter);
+
+	/* This isn't supported on KDE so we only send it if it's
+	 * meaningful */
+	if (target) {
+		static const char *target_key = "target";
+
+		dbus_message_iter_open_container(
+			&array_iter, DBUS_TYPE_DICT_ENTRY, NULL, &dict_iter);
+		dbus_message_iter_append_basic(
+			&dict_iter, DBUS_TYPE_STRING, &target_key);
+		dbus_message_iter_open_container(&dict_iter, DBUS_TYPE_VARIANT,
+			DBUS_TYPE_UINT32_AS_STRING, &variant_iter);
+		dbus_message_iter_append_basic(
+			&variant_iter, DBUS_TYPE_UINT32, &target);
+		dbus_message_iter_close_container(&dict_iter, &variant_iter);
+		dbus_message_iter_close_container(&array_iter, &dict_iter);
+	}
+
+	/* {"interactive": false} -- enabled by default, unnecessary */
+
+	/* {"handle_token": token} */
+	if (token) {
+		static const char *token_key = "handle_token";
+
+		dbus_message_iter_open_container(
+			&array_iter, DBUS_TYPE_DICT_ENTRY, NULL, &dict_iter);
+		dbus_message_iter_append_basic(
+			&dict_iter, DBUS_TYPE_STRING, &token_key);
+		dbus_message_iter_open_container(&dict_iter, DBUS_TYPE_VARIANT,
+			DBUS_TYPE_STRING_AS_STRING, &variant_iter);
+		dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &token);
+		dbus_message_iter_close_container(&dict_iter, &variant_iter);
+		dbus_message_iter_close_container(&array_iter, &dict_iter);
+	}
+
+	dbus_message_iter_close_container(&iter, &array_iter);
+
+	if (!dbus_connection_send_with_reply(conn->conn, msg, pending, -1))
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+	dbus_message_unref(msg);
+	dbus_connection_flush(conn->conn);
+	return YUKINO_RESULT_OK;
+}
+
+static char *get_token(void)
+{
+	uint64_t uuid[2];
+	char *r;
+
+	/* Generate a kind of random but not really UUID */
+	if (yukino_random(uuid, sizeof(uuid)) < 0)
+		return NULL;
+
+	if (asprintf(&r, "yukino_%016" PRIx64 "%016" PRIx64, uuid[0], uuid[1]) < 0)
+		return NULL;
+
+	return r;
+}
+
+static yukino_result_t receive_message(
+	struct yukino_xdg *conn, DBusPendingCall *pending, char **req)
+{
+	DBusMessage *msg;
+	char *req_path;
+	DBusError error;
+
+	dbus_error_init(&error);
+
+	dbus_pending_call_block(pending);
+	msg = dbus_pending_call_steal_reply(pending);
+	dbus_pending_call_unref(pending);
+
+	if (!msg)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	if (dbus_message_get_type(msg) == DBUS_MESSAGE_TYPE_ERROR) {
+		dbus_message_unref(msg);
 		return YUKINO_RESULT_UNSUPPORTED;
 	}
 
-	g_main_loop_run(conn->loop);
+	if (!dbus_message_get_args(
+			msg, &error, DBUS_TYPE_OBJECT_PATH, &req_path, DBUS_TYPE_INVALID)) {
+		dbus_error_free(&error);
+		dbus_message_unref(msg);
+		return YUKINO_RESULT_UNSUPPORTED;
+	}
+	*req = strdup(req_path);
+	dbus_message_unref(msg);
 
-	conn->temp_pixel_func = NULL;
-	conn->temp_pixel_func_data = NULL;
+	return YUKINO_RESULT_OK;
+}
 
-	return conn->temp_err;
+static yukino_result_t get_uri(struct yukino_xdg *conn, char **puri)
+{
+	yukino_result_t r;
+	dbus_bool_t running;
+
+	r = YUKINO_RESULT_UNSUPPORTED;
+	running = TRUE;
+	while (running && dbus_connection_read_write_dispatch(conn->conn, -1)) {
+		DBusMessage *sig;
+		DBusMessageIter sig_iter, res_dict, entry, variant;
+		dbus_uint32_t response_code;
+
+		sig = dbus_connection_pop_message(conn->conn);
+		if (!sig)
+			continue;
+
+		if (!dbus_message_is_signal(
+				sig, "org.freedesktop.portal.Request", "Response"))
+			goto skip;
+
+		dbus_message_iter_init(sig, &sig_iter);
+
+		dbus_message_iter_get_basic(&sig_iter, &response_code);
+		if (response_code != 0)
+			goto skip;
+
+		dbus_message_iter_next(&sig_iter);
+		dbus_message_iter_recurse(&sig_iter, &res_dict);
+
+		do {
+			DBusMessageIter entry;
+			const char *key;
+
+			if (dbus_message_iter_get_arg_type(&res_dict)
+				!= DBUS_TYPE_DICT_ENTRY)
+				continue;
+
+			dbus_message_iter_recurse(&res_dict, &entry);
+			dbus_message_iter_get_basic(&entry, &key);
+
+			if (strcmp(key, "uri") == 0) {
+				const char *uri;
+
+				dbus_message_iter_next(&entry);
+				dbus_message_iter_recurse(&entry, &variant);
+				dbus_message_iter_get_basic(&variant, &uri);
+
+				*puri = strdup(uri);
+				r = YUKINO_RESULT_OK;
+
+				running = FALSE;
+			}
+		} while (dbus_message_iter_next(&res_dict));
+
+skip:
+		dbus_message_unref(sig);
+	}
+
+	return r;
+}
+
+static yukino_result_t yukino_xdg_take_impl(struct yukino_xdg *conn, uint32_t x,
+	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
+	void *userdata, const char *token, uint32_t target)
+{
+	DBusPendingCall *pending;
+	yukino_result_t r;
+	char *req_path, *uri;
+
+	/* Avoid possible race by subscribing first
+	 * with a prediction of the path */
+	if (predict_req_path(conn, token, &req_path) >= 0) {
+		subscribe(conn, req_path);
+		free(req_path);
+	}
+
+	r = send_method(conn, token, target, &pending);
+	if (r < 0)
+		return r;
+
+	r = receive_message(conn, pending, &req_path);
+	if (r < 0)
+		return r;
+
+	/* This is a no-op if the token prediction was correct */
+	subscribe(conn, req_path);
+	free(req_path);
+
+	/* XXX should this be in get_uri ?? */
+	dbus_connection_flush(conn->conn);
+
+	r = get_uri(conn, &uri);
+	if (r < 0)
+		return r;
+
+	r = process_image_uri(uri, x, y, w, h, pixel_func, userdata);
+	free(uri);
+	if (r < 0)
+		return r;
+
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
+	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata)
+{
+	yukino_result_t r;
+	char *token;
+
+	token = get_token();
+	if (!token)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	/* Try giving the target value */
+	r = yukino_xdg_take_impl(
+		conn, x, y, w, h, pixel_func, userdata, token, TARGET_SCREEN);
+	if (r < 0) {
+		/* Try again, but this time without the target key
+		 * XXX should we need another random token here...? */
+		r = yukino_xdg_take_impl(
+			conn, x, y, w, h, pixel_func, userdata, token, TARGET_NONE);
+	}
+
+	free(token);
+
+	return r;
 }
 
 yukino_result_t yukino_xdg_init(struct yukino_xdg *xdg)
 {
-	if (!xdg) return YUKINO_RESULT_INVALID_PARAM;
+	if (!xdg)
+		return YUKINO_RESULT_INVALID_PARAM;
 
 	memset(xdg, 0, sizeof(*xdg));
 
-	xdg->loop = g_main_loop_new(NULL, FALSE);
-	xdg->screenshot_proxy
-	= org_freedesktop_portal_screenshot_proxy_new_for_bus_sync(
-		G_BUS_TYPE_SESSION, G_DBUS_PROXY_FLAGS_NONE,
-		"org.freedesktop.portal.Desktop", /* bus name */
-		"/org/freedesktop/portal/desktop", /* object */
-		NULL, /* GCancellable* */
-		NULL);
-	if (!xdg->screenshot_proxy) {
+	xdg->conn = dbus_bus_get(DBUS_BUS_SESSION, NULL);
+	if (!xdg->conn)
 		return YUKINO_RESULT_UNSUPPORTED;
-	}
-
-	xdg->conn = g_dbus_proxy_get_connection(
-		G_DBUS_PROXY(xdg->screenshot_proxy));
 
 	return YUKINO_RESULT_OK;
 }
 
 void yukino_xdg_quit(struct yukino_xdg *xdg)
 {
-	if (!xdg) return;
+	if (!xdg)
+		return;
 
-	/* Ehhhhh */
-	if (xdg->loop) {
-		g_main_loop_unref(xdg->loop);
-		xdg->loop = NULL;
-	}
-
-	/* A GDBusConnection owned by proxy. Do not free. */
-	xdg->conn = NULL;
-	/* ;) */
-	g_object_unref(xdg->screenshot_proxy);
+	dbus_connection_unref(xdg->conn);
 }

@@ -23,6 +23,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(XCB xcb)
 pkg_check_modules(ZLIB zlib)
 pkg_check_modules(GIO gio-2.0 glib-2.0)
+pkg_check_modules(DBUS dbus-1)
 pkg_check_modules(WAYLAND wayland-client)
 find_program(WAYLAND_SCANNER wayland-scanner)
 find_program(GDBUS_CODEGEN gdbus-codegen)
@@ -32,7 +33,7 @@ set(LIBRARIES "")
 set(INCLUDE "")
 set(DEFINES "")
 
-set(SRC_FILES yukino.c crc32.c adler32.c uri.c fmt/png.c fmt/ppm.c fmt/bmp.c)
+set(SRC_FILES yukino.c crc32.c adler32.c uri.c random.c fmt/png.c fmt/ppm.c fmt/bmp.c)
 
 if(XCB_FOUND)
   list(APPEND LIBRARIES ${XCB_LINK_LIBRARIES})
@@ -74,31 +75,14 @@ if(WAYLAND_FOUND AND WAYLAND_SCANNER)
   list(APPEND SRC_FILES sys/wayland.c)
 endif()
 
-if(GIO_FOUND AND GDBUS_CODEGEN)
-  function(gen_iface iface)
-    message(STATUS "generating ${GEN_DIR}/${iface}.c")
-    add_custom_command(
-      OUTPUT ${GEN_DIR}/${iface}.c ${GEN_DIR}/${iface}.h
-      COMMAND ${GDBUS_CODEGEN}
-              --generate-c-code ${GEN_DIR}/${iface}
-              ${CMAKE_CURRENT_SOURCE_DIR}/interfaces/${iface}.xml
-      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/interfaces/${iface}.xml
-      COMMENT "Generating GDBus code"
-    )
-    list(APPEND SRC_FILES "${GEN_DIR}/${iface}.c")
-    set(SRC_FILES ${SRC_FILES} PARENT_SCOPE)
-  endfunction()
-
-  gen_iface(org.freedesktop.portal.Screenshot)
-  gen_iface(org.freedesktop.portal.Request)
-
-  list(APPEND LIBRARIES ${GIO_LINK_LIBRARIES})
-  list(APPEND INCLUDE ${GIO_INCLUDE_DIRS})
-  list(APPEND DEFINES "-DYUKINO_XDG=1")
-  list(APPEND SRC_FILES sys/xdg.c)
+if(DBUS_FOUND)
+  list(APPEND LIBRARIES ${DBUS_LINK_LIBRARIES})
+  list(APPEND INCLUDE ${DBUS_INCLUDE_DIRS})
+  list(APPEND DEFINES "-DYUKINO_XDG=1 -DYUKINO_KWIN=1")
+  list(APPEND SRC_FILES sys/xdg.c sys/kwin.c)
 endif()
 
-if(GIO_FOUND AND GDBUS_CODEGEN AND WAYLAND_FOUND AND WAYLAND_SCANNER)
+if(DBUS_FOUND AND WAYLAND_FOUND AND WAYLAND_SCANNER)
   list(APPEND LIBRARIES m)
   list(APPEND DEFINES "-DYUKINO_GIO=1")
   list(APPEND SRC_FILES sys/gio.c)
