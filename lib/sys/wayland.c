@@ -19,12 +19,16 @@
 #include "yukino.h"
 #include "sys/wayland.h"
 
+#include <wayland-client-protocol.h>
 #include <xdg-output-unstable-v1.h>
 
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 struct display_r {
+	struct wl_output *output;
+	struct zxdg_output_v1 *xdg_output;
+
 	yukino_rect_t pixel;
 	yukino_rect_t logical;
 	// int32_t scale_factor;
@@ -35,6 +39,7 @@ struct display_r {
 struct display_data {
 	struct display_r **monitors;
 	size_t monitors_size;
+
 	struct zxdg_output_manager_v1 *om;
 	struct zwp_linux_dmabuf_v1 *dma;
 };
@@ -50,7 +55,7 @@ static void handle_xdg_output_logical_position(
 }
 
 static void handle_xdg_output_logical_size(void *data,
-					   struct zxdg_output_v1 *xdg_output, int32_t width, int32_t height)
+	struct zxdg_output_v1 *xdg_output, int32_t width, int32_t height)
 {
 	struct display_r *d = data;
 
@@ -84,9 +89,9 @@ static const struct zxdg_output_v1_listener xdg_output_listener = {
 
 // Callback when a monitor sends its geometry data
 static void output_handle_geometry(void *data, struct wl_output *wl_output,
-				   int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
-				   int32_t subpixel, const char *make, const char *model,
-				   int32_t transform)
+	int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
+	int32_t subpixel, const char *make, const char *model,
+	int32_t transform)
 {
 	struct display_r *r = data;
 
@@ -96,7 +101,7 @@ static void output_handle_geometry(void *data, struct wl_output *wl_output,
 
 // Callback when a monitor sends its resolution modes
 static void output_handle_mode(void *data, struct wl_output *wl_output,
-			       uint32_t flags, int32_t width, int32_t height, int32_t refresh)
+	uint32_t flags, int32_t width, int32_t height, int32_t refresh)
 {
 	struct display_r *r;
 
@@ -131,36 +136,36 @@ static const struct wl_output_listener output_listener = {
 
 // Callback to handle global interface registry additions
 static void registry_handle_global(void *data, struct wl_registry *registry,
-				   uint32_t id, const char *interface, uint32_t version)
+	uint32_t id, const char *interface, uint32_t version)
 {
 	struct display_data *state = data;
 
 	if (strcmp(interface, wl_output_interface.name) == 0) {
+		struct display_r *m;
+
 		state->monitors = realloc(
 			state->monitors, sizeof(struct display_r *)
-			* (state->monitors_size + 1));
-		state->monitors[state->monitors_size]
-		= calloc(1, sizeof(struct display_r));
+						 * (state->monitors_size + 1));
+		m = state->monitors[state->monitors_size]
+			= calloc(1, sizeof(struct display_r));
 
-		struct wl_output *output = wl_registry_bind(
+		m->output = wl_registry_bind(
 			registry, id, &wl_output_interface, 2);
-		wl_output_add_listener(output, &output_listener,
-				       state->monitors[state->monitors_size]);
+		wl_output_add_listener(m->output, &output_listener, m);
 
-		struct zxdg_output_v1 *xdg_output
-		= zxdg_output_manager_v1_get_xdg_output(
-			state->om, output);
-		zxdg_output_v1_add_listener(xdg_output, &xdg_output_listener,
-					    state->monitors[state->monitors_size]);
+		m->xdg_output = zxdg_output_manager_v1_get_xdg_output(
+			state->om, m->output);
+		zxdg_output_v1_add_listener(
+			m->xdg_output, &xdg_output_listener, m);
 
 		state->monitors_size++;
 	} else if (strcmp(interface, zxdg_output_manager_v1_interface.name)
-		== 0) {
+		   == 0) {
 		if (version > 3)
 			version = 3;
 		state->om = wl_registry_bind(registry, id,
-					     &zxdg_output_manager_v1_interface, version);
-		}
+			&zxdg_output_manager_v1_interface, version);
+	}
 }
 
 static void registry_handle_global_remove(
@@ -185,13 +190,23 @@ yukino_result_t yukino_wayland_display_resolution(
 
 	{
 		struct wl_registry *registry
-		= wl_display_get_registry(wl->display);
+			= wl_display_get_registry(wl->display);
 		wl_registry_add_listener(registry, &registry_listener, &dd);
 
 		wl_display_roundtrip(wl->display);
 		wl_display_roundtrip(wl->display);
 
 		wl_registry_destroy(registry);
+		if (dd.om)
+			zxdg_output_manager_v1_destroy(dd.om);
+		for (i = 0; i < dd.monitors_size; i++) {
+			struct display_r *m = dd.monitors[i];
+
+			if (m->xdg_output)
+				zxdg_output_v1_destroy(m->xdg_output);
+			if (m->output)
+				wl_output_destroy(m->output);
+		}
 	}
 
 	if (dd.monitors_size == 0)
@@ -210,7 +225,8 @@ yukino_result_t yukino_wayland_display_resolution(
 		/* Round to nearest quarter. This sucks but it makes
 		 * rounding errors (e.g. 1366 * 1.25) a bit less painful */
 		s = round((double)m->pixel.w / m->logical.w * 4) / 4;
-		if (scale < s) scale = s;
+		if (scale < s)
+			scale = s;
 	}
 
 	for (i = 0; i < dd.monitors_size; i++) {
@@ -257,7 +273,8 @@ yukino_result_t yukino_wayland_init(struct yukino_wayland *wl)
 
 void yukino_wayland_quit(struct yukino_wayland *wl)
 {
-	if (!wl) return;
+	if (!wl)
+		return;
 
 	if (wl->display)
 		wl_display_disconnect(wl->display);
