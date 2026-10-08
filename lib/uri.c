@@ -37,7 +37,7 @@ static inline yukino_result_t uri_decode_halfbyte(
 	return YUKINO_RESULT_INVALID_PARAM;
 }
 
-/* Caller must check for length of p is >= 2 */
+/* Caller must check for length of p is > 2 */
 static inline yukino_result_t uri_decode_byte(
 	const unsigned char *p, unsigned char *r)
 {
@@ -68,21 +68,19 @@ yukino_result_t yukino_uri_decode(
 	if (!r)
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 
-	for (i = 0, j = 0;;) {
+	for (i = 0, j = 0; i < len;) {
 		/* string.h routines are extremely optimized */
 		size_t copylen;
 		const unsigned char *pp;
 
 		pp = memchr(p + i, '%', len - i);
-		if (pp) {
-			copylen = pp - p;
-		} else {
-			copylen = len - i;
-		}
+		copylen = ((pp) ? (pp - p) : (len)) - i;
 
-		memcpy(r + j, p + i, copylen);
-		i += copylen;
-		j += copylen;
+		if (copylen > 0) {
+			memcpy(r + j, p + i, copylen);
+			i += copylen;
+			j += copylen;
+		}
 
 		/* Done? */
 		if (!pp)
@@ -90,7 +88,7 @@ yukino_result_t yukino_uri_decode(
 
 		/* p[i] points to the percent sign, jump past it */
 		i++;
-		if ((i + 2) >= len) {
+		if ((i + 2) > len) {
 			free(r);
 			return YUKINO_RESULT_INVALID_PARAM;
 		}
