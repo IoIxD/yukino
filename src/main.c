@@ -18,9 +18,15 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_render.h>
 
 #include "yukino.h"
 
+#ifdef YUKINO_LAYER_SHELL
+# include "layer_shell.h"
+#endif
+
+#include <limits.h>
 #include <stdio.h>
 
 #include <getopt.h>
@@ -33,7 +39,8 @@ struct sdl_take_pixel {
 	int x, y;
 };
 
-static yukino_result_t sdl_take_pixel(void *userdata, unsigned char rgb[3])
+static yukino_result_t sdl_take_pixel(
+	void *userdata, const unsigned char rgb[3])
 {
 	struct sdl_take_pixel *sur = userdata;
 	uint32_t *px;
@@ -44,17 +51,17 @@ static yukino_result_t sdl_take_pixel(void *userdata, unsigned char rgb[3])
 	}
 
 	px = (uint32_t *)((char *)sur->sur->pixels + (sur->sur->pitch * sur->y))
-	     + sur->x;
+		+ sur->x;
 
 	*px = 0xFF000000 | ((uint32_t)rgb[2] << 16) | ((uint32_t)rgb[1] << 8)
-	      | rgb[0];
+		| rgb[0];
 
 	sur->x++;
 	return YUKINO_RESULT_OK;
 }
 
-static SDL_Surface *sdl_screenshot(yukino_connection_t *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h)
+static SDL_Surface *sdl_screenshot(
+	yukino_connection_t *conn, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	struct sdl_take_pixel s;
 
@@ -195,10 +202,8 @@ static void windows_fill(yukino_connection_t *conn)
 		if (windows_size >= windows_alloc) {
 			void *old = windows;
 
-			windows_alloc
-				= (windows_alloc) ? (windows_alloc * 2) : 16;
-			windows = realloc(
-				windows, windows_alloc * sizeof(*windows));
+			windows_alloc = (windows_alloc) ? (windows_alloc * 2) : 16;
+			windows = realloc(windows, windows_alloc * sizeof(*windows));
 
 			if (!windows) {
 				free(old);
@@ -213,8 +218,7 @@ static void windows_fill(yukino_connection_t *conn)
 		if (yukino_window_position(conn, win, &w->rect) < 0)
 			continue; /* ??? */
 
-		if (yukino_window_decorated_position(conn, win, &w->border)
-			>= 0)
+		if (yukino_window_decorated_position(conn, win, &w->border) >= 0)
 			w->have_border = 1;
 		w->win = win;
 
@@ -288,44 +292,82 @@ static void pixels_to_points(
 	out->h = in->h / density;
 }
 
-static int get_num_displays(void)
+static int get_desktop_res(SDL_Rect *prect, int *rrn, int *rrd)
 {
 	SDL_DisplayID *disp;
-	int r;
+	SDL_DisplayID disp_biggest = 0;
+	int i, r, disp_biggest_set = 0;
+	int32_t x0, x1, y0, y1;
+	float s = 1.5;
+	float rr = 0.0f;
 
 	disp = SDL_GetDisplays(&r);
 	if (!disp)
 		return -1;
 
-	free(disp);
+	x0 = y0 = INT32_MAX;
+	x1 = y1 = INT32_MIN;
+
+	for (i = 0; i < r; i++) {
+		SDL_Rect rect;
+		const SDL_DisplayMode *mode;
+
+		mode = SDL_GetDesktopDisplayMode(disp[i]);
+		if (mode && mode->refresh_rate >= rr) {
+			rr = mode->refresh_rate;
+			*rrn = mode->refresh_rate_numerator;
+			*rrd = mode->refresh_rate_denominator;
+		}
+
+		if (!SDL_GetDisplayBounds(disp[i], &rect))
+			continue;
+
+		if (x0 > rect.x)
+			x0 = rect.x;
+		if (x1 < (rect.x + rect.w))
+			x1 = (rect.x + rect.w);
+		if (y0 > rect.y)
+			y0 = rect.y;
+		if (y1 < (rect.y + rect.h))
+			y1 = (rect.y + rect.h);
+	}
+
+	prect->x = x0;
+	prect->y = y0;
+	prect->w = x1 - x0;
+	prect->h = y1 - y0;
+
+	SDL_free(disp);
 	return r;
 }
 
 int main(int argc, char *argv[])
 {
 	SDL_Surface *sur;
-	SDL_Texture *tex;
 	SDL_Window *win;
 	SDL_Renderer *ren;
+	SDL_Texture *tex;
 	SDL_Event ev;
 	SDL_Cursor *cur;
 	SDL_FRect sel;
+	SDL_Rect desk_res;
 	/* Mouse down, drag */
-	enum {
-		POINTS_DOWN,
-		POINTS_DRAG,
-		POINTS_MAX_
-	};
+	enum { POINTS_DOWN, POINTS_DRAG, POINTS_MAX_ };
 	SDL_FPoint points[POINTS_MAX_];
 	int down = 0, drag = 0;
 	char *file = NULL; /* output file */
 	int opt;
+	int num_disp;
 	static struct option long_opts[] = {
 		{"output", required_argument, 0, 'o'},
 		{0},
 	};
 	int esc = 0;
-	float density;
+#ifdef YUKINO_LAYER_SHELL
+	int layer = 0;
+#endif
+	int refresh_rate_num, refresh_rate_den;
+	Uint64 redraw_ns;
 
 	/* parse command line opts */
 	while ((opt = getopt_long(argc, argv, "o:", long_opts, NULL)) != -1) {
@@ -342,6 +384,9 @@ int main(int argc, char *argv[])
 
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return 1;
+
+	num_disp = get_desktop_res(&desk_res, &refresh_rate_num, &refresh_rate_den);
+	redraw_ns = SDL_NS_PER_SECOND * refresh_rate_den / refresh_rate_num;
 
 	{
 		yukino_connection_t *conn;
@@ -369,22 +414,23 @@ int main(int argc, char *argv[])
 		SDL_PropertiesID props = SDL_CreateProperties();
 
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, sur->h);
+			props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, desk_res.h);
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, sur->w);
+			props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, desk_res.w);
 		SDL_SetBooleanProperty(
 			props, SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, true);
-		SDL_SetBooleanProperty(props,
-			SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN, true);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN, true);
 		SDL_SetBooleanProperty(
 			props, SDL_PROP_WINDOW_CREATE_BORDERLESS_BOOLEAN, true);
-		SDL_SetBooleanProperty(props,
-			SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN,
-			true);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, true);
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_X_NUMBER, 0);
+			props, SDL_PROP_WINDOW_CREATE_X_NUMBER, desk_res.x);
 		SDL_SetNumberProperty(
-			props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, 0);
+			props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, desk_res.y);
+		SDL_SetBooleanProperty(
+			props, SDL_PROP_WINDOW_CREATE_UTILITY_BOOLEAN, true);
 
 		/* On MATE, if there is only one display, the top bar will push
 		 * the window down. Bypass that by setting the window to
@@ -393,11 +439,18 @@ int main(int argc, char *argv[])
 		 * We explicitly DON'T do this for multi-display desktops,
 		 * because that ends up having the window on only one display,
 		 * which is Not What We Want */
-		if (get_num_displays() == 1) {
-			SDL_SetBooleanProperty(props,
-				SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN,
-				true);
+		if (num_disp == 1) {
+			SDL_SetBooleanProperty(
+				props, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN, true);
 		}
+
+#ifdef YUKINO_LAYER_SHELL
+		layer = layer_shell_available();
+		if (layer)
+			SDL_SetBooleanProperty(props,
+				SDL_PROP_WINDOW_CREATE_WAYLAND_SURFACE_ROLE_CUSTOM_BOOLEAN,
+				true);
+#endif
 
 		win = SDL_CreateWindowWithProperties(props);
 
@@ -407,13 +460,19 @@ int main(int argc, char *argv[])
 	if (!win)
 		goto end;
 
-	ren = SDL_CreateRenderer(win, NULL);
+#ifdef YUKINO_LAYER_SHELL
+	if (layer && layer_shell_attach(win, desk_res.w, desk_res.h) < 0) {
+		layer_shell_detach();
+		SDL_DestroyWindow(win);
+		goto end;
+	}
+#endif
 
+	SDL_ShowWindow(win);
+
+	ren = SDL_CreateRenderer(win, NULL);
 	if (!ren)
 		goto end;
-
-	density = SDL_GetWindowPixelDensity(win);
-
 	tex = SDL_CreateTextureFromSurface(ren, sur);
 
 	cur = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
@@ -422,32 +481,78 @@ int main(int argc, char *argv[])
 	do {
 		float mx, my;
 		yukino_rect_t w;
+		SDL_FRect rendsel;
+		float scale_to_render, scale_from_render;
+		int redraw = 0;
+		static Uint64 next_redraw;
+		Uint64 this_redraw;
 
-		SDL_GetMouseState(&mx, &my);
+		{
+			int www, hhh;
+			SDL_GetRenderOutputSize(ren, &www, &hhh);
+			scale_to_render = (float)www / sur->w;
+			scale_from_render = (float)sur->w / www;
+		}
 
-		/* ugh */
-		mx *= density;
-		my *= density;
+		switch (ev.type) {
+		case SDL_EVENT_WINDOW_SHOWN:
+		case SDL_EVENT_WINDOW_EXPOSED: redraw = 1; break;
+		case SDL_EVENT_MOUSE_BUTTON_DOWN: down = 1;
+#define SCALE_FROM_WINDOW(x, y, px, py) \
+	(SDL_RenderCoordinatesFromWindow(ren, x, y, px, py), \
+		*(px) *= scale_from_render, (*py) *= scale_from_render)
+			SCALE_FROM_WINDOW(ev.button.x, ev.button.y, &points[POINTS_DOWN].x,
+				&points[POINTS_DOWN].y);
+			redraw = 1;
+			break;
+		case SDL_EVENT_MOUSE_MOTION:
+			if (down)
+				drag = 1;
+			SCALE_FROM_WINDOW(ev.motion.x, ev.motion.y, &points[POINTS_DRAG].x,
+				&points[POINTS_DRAG].y);
+			redraw = 1;
+			break;
+		case SDL_EVENT_KEY_DOWN:
+			if (ev.key.key == SDLK_ESCAPE) {
+				esc = 1;
+				goto out;
+			}
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_UP: goto out;
+		}
+
+		if (!redraw)
+			continue;
+
+		/* FIXME check the monitor with the highest refresh rate */
+		this_redraw = SDL_GetTicksNS();
+		if (this_redraw < next_redraw)
+			continue;
+		next_redraw = this_redraw + redraw_ns;
 
 		/* Adjust selection */
 		if (drag) {
 			/* Lol wow SDL has a function for this */
-			SDL_GetRectEnclosingPointsFloat(
-				points, POINTS_MAX_, NULL, &sel);
-		} else if (windows_query_at_point(mx, my, &w)
-			   == YUKINO_RESULT_OK) {
-			pixels_to_points(&sel, &w, density);
+			SDL_GetRectEnclosingPointsFloat(points, POINTS_MAX_, NULL, &sel);
 		} else {
-			/* Otherwise the "selection" is the window beneath the
-			 * cursor. */
-			sel.x = sel.y = 0;
-			sel.w = sur->w / density;
-			sel.h = sur->h / density;
+			SDL_GetMouseState(&mx, &my);
+			//SCALE_FROM_WINDOW(mx, my, &mx, &my);
+			if (windows_query_at_point(mx, my, &w) == YUKINO_RESULT_OK) {
+				pixels_to_points(&sel, &w, 1.0);
+				SCALE_FROM_WINDOW(sel.x, sel.y, &sel.x, &sel.y);
+				SCALE_FROM_WINDOW(sel.w, sel.h, &sel.w, &sel.h);
+			} else {
+				/* the "selection" is the whole display */
+				sel.x = sel.y = 0;
+				sel.w = sur->w;
+				sel.h = sur->h;
+			}
 		}
 
-		/* crop any out-of-bounds selections (can happen if a window is
-		 * partially offscreen) */
-		fixup(&sel, sur);
+		rendsel.x = sel.x * scale_to_render;
+		rendsel.y = sel.y * scale_to_render;
+		rendsel.w = sel.w * scale_to_render;
+		rendsel.h = sel.h * scale_to_render;
 
 		/* now we begin our blitting journey */
 		SDL_RenderClear(ren);
@@ -459,36 +564,9 @@ int main(int argc, char *argv[])
 		SDL_RenderTexture(ren, tex, NULL, NULL);
 
 		SDL_SetTextureColorMod(tex, 255, 255, 255);
-		SDL_RenderTexture(ren, tex, &sel, &sel);
+		SDL_RenderTexture(ren, tex, &sel, &rendsel);
 
 		SDL_RenderPresent(ren);
-
-		/* When we create our window, it's hidden, to avoid showing a
-		 * huge blank window on startup. Now we want to show the window
-		 * since it's done rendering. */
-		SDL_ShowWindow(win);
-
-		switch (ev.type) {
-		case SDL_EVENT_MOUSE_BUTTON_DOWN:
-			down = 1;
-			points[POINTS_DOWN].x = ev.button.x;
-			points[POINTS_DOWN].y = ev.button.y;
-			break;
-		case SDL_EVENT_MOUSE_MOTION:
-			if (down)
-				drag = 1;
-			points[POINTS_DRAG].x = ev.motion.x;
-			points[POINTS_DRAG].y = ev.motion.y;
-			break;
-		case SDL_EVENT_KEY_DOWN:
-			if (ev.key.key == SDLK_ESCAPE) {
-				esc = 1;
-				goto out;
-			}
-			break;
-		case SDL_EVENT_MOUSE_BUTTON_UP:
-			goto out;
-		}
 	} while (SDL_WaitEvent(&ev));
 
 out:
@@ -498,6 +576,10 @@ out:
 	/* No longer need any of this */
 	SDL_DestroyTexture(tex);
 	SDL_DestroyRenderer(ren);
+#ifdef YUKINO_LAYER_SHELL
+	if (layer)
+		layer_shell_detach();
+#endif
 	SDL_DestroyWindow(win);
 	SDL_DestroyCursor(cur);
 
@@ -513,11 +595,11 @@ out:
 
 		static const SDL_DialogFileFilter filters[] = {
 			{"PNG (Portable Network Graphics)", "png"},
-			{"All files",                       "*"  }
-                };
+            {"All files",                       "*"  }
+        };
 
-		SDL_ShowSaveFileDialog(dialog_cb, (void *)&c, NULL, filters,
-			SDL_arraysize(filters), NULL);
+		SDL_ShowSaveFileDialog(
+			dialog_cb, (void *)&c, NULL, filters, SDL_arraysize(filters), NULL);
 
 		/* Wait until the semaphore is signaled
 		 * ...but we still need to handle events */
@@ -532,7 +614,8 @@ out:
 	/* Save it */
 	if (file) {
 		yukino_rect_t w;
-		points_to_pixels(&w, &sel, density);
+		points_to_pixels(&w, &sel,
+			1.0); /* This is in render coordinates, but we need integers */
 		sdl_write_surface_to_png(file, sur, &w);
 		free(file);
 	}

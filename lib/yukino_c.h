@@ -52,18 +52,17 @@ struct yukino_connection {
 		yukino_connection_t *conn, yukino_window_iter_t *wi);
 
 	/* Grabs the window position. */
-	yukino_result_t (*window_position)(yukino_connection_t *conn,
-		yukino_window_t win, yukino_rect_t *pr);
+	yukino_result_t (*window_position)(
+		yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr);
 
 	/* Grabs the window's decorated position */
-	yukino_result_t (*window_decorated_position)(yukino_connection_t *conn,
-		yukino_window_t win, yukino_rect_t *pr);
+	yukino_result_t (*window_decorated_position)(
+		yukino_connection_t *conn, yukino_window_t win, yukino_rect_t *pr);
 
 	/* Takes a screenshot and passes each pixel to pixel_func, in order
 	 * of left-right top-down. */
-	yukino_result_t (*take)(yukino_connection_t *conn, uint32_t x,
-		uint32_t y, uint32_t w, uint32_t h,
-		yukino_pixel_proc_t pixel_func, void *userdata);
+	yukino_result_t (*take)(yukino_connection_t *conn, uint32_t x, uint32_t y,
+		uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
 
 	/* Locks and unlocks the display server, if possible, otherwise
 	 * return YUKINO_RESULT_UNSUPPORTED. This does not have to be
@@ -109,6 +108,11 @@ uint32_t yukino_adler32_get(struct yukino_adler32 *a32);
 yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn);
 #endif
 
+#ifdef YUKINO_GIO
+/* initializes a connection */
+yukino_result_t yukino_gio_connect(yukino_connection_t **pconn);
+#endif
+
 YUKINO_INLINE unsigned int yukino_ctz32(uint32_t x)
 {
 #ifdef __GNUC__
@@ -116,7 +120,8 @@ YUKINO_INLINE unsigned int yukino_ctz32(uint32_t x)
 #else
 	unsigned int i;
 
-	if (!x) return 32;
+	if (!x)
+		return 32;
 
 	for (i = 0; !(x & 1); x >>= 1, i++)
 		;
@@ -138,5 +143,19 @@ YUKINO_INLINE unsigned int yukino_popcnt32(uint32_t x)
 	return i;
 #endif
 }
+
+/* URI decoding.
+ *
+ * Consumes the input buffer p of size len, and puts the decoded form
+ * into *res.
+ * The buffer put into *res is always NUL terminated, so if you know
+ * you just need a C string, you do not need to pass a res_size. */
+yukino_result_t yukino_uri_decode(
+	const char *p, size_t len, unsigned char **res, size_t *res_size);
+yukino_result_t yukino_uri_get_file_path(const char *p, char **res);
+
+/* Fill a buffer with random bytes
+ * Currently hardcoded for /dev/urandom and has no fallback */
+yukino_result_t yukino_random(void *x, size_t n);
 
 #endif /* YUKINO_C_H_ */
