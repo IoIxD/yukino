@@ -463,6 +463,8 @@ yukino_result_t yukino_xdg_display_resolution(struct yukino_xdg *conn, uint32_t 
 
 	*w = d.w;
 	*h = d.h;
+	printf("xdg %d %d\n",*w,*h);
+
 	return YUKINO_RESULT_OK;
 }
 

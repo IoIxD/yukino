@@ -16,7 +16,7 @@
  * License along with this library; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* This file just glues the wayland and xdg crap together.
+/* This file just glues the wayland, xdg, wlr, etc. crap together.
  * It also desperately needs a better name lmao */
 
 #include "yukino.h"
@@ -24,16 +24,20 @@
 #include "sys/kwin.h"
 #include "sys/wayland.h"
 #include "sys/xdg.h"
+#include "sys/wlr.h"
+#include <stdio.h>
 
 /* Define data specific to this connection */
 struct yukino_connection_data {
 	struct yukino_wayland wl;
 	struct yukino_xdg xdg;
 	struct yukino_kwin kwi;
+	struct yukino_wlr wlr;
 
 	unsigned int have_xdg : 1;
 	unsigned int have_kwin : 1;
 	unsigned int have_wl : 1;
+	unsigned int have_wlr : 1;
 
 	/* Use KWin window iter and geometry functions.
 	 * This is different from have_kwin as we might be able to
@@ -56,9 +60,10 @@ static yukino_result_t yukino_gio_disconnect(yukino_connection_t *conn)
 static yukino_result_t yukino_gio_display_resolution(
 	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
 {
-	/* Very likely to be more accurate */
-	if (conn->conn_data.have_xdg)
+	/* Very likely to be more accurate on platforms that use xdg */
+	if (conn->conn_data.have_xdg && !conn->conn_data.have_wlr)
 		return yukino_xdg_display_resolution(&conn->conn_data.xdg, w, h);
+
 
 	if (conn->conn_data.have_wl)
 		return yukino_wayland_display_resolution(&conn->conn_data.wl, w, h);
@@ -83,6 +88,9 @@ static yukino_result_t yukino_gio_take(yukino_connection_t *conn, uint32_t x,
 	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
 	void *userdata)
 {
+    if (conn->conn_data.have_wlr)
+		return yukino_wlr_take(&conn->conn_data.wlr, x, y, w, h, pixel_func, userdata);
+
 	if (conn->conn_data.have_xdg)
 		return yukino_xdg_take(&conn->conn_data.xdg, x, y, w, h, pixel_func, userdata);
 
@@ -153,13 +161,18 @@ yukino_result_t yukino_gio_connect(yukino_connection_t **pconn)
 	}
 	conn->conn_data.have_wl = 1;
 
+
+	if (yukino_wlr_init(&conn->conn_data.wlr, &conn->conn_data.wl) >= 0)
+		conn->conn_data.have_wlr = 1;
+
 	if (yukino_xdg_init(&conn->conn_data.xdg) >= 0)
-		conn->conn_data.have_xdg = 1;
+  		conn->conn_data.have_xdg = 1;
 
 	if (yukino_kwin_init(&conn->conn_data.kwi) >= 0)
-		conn->conn_data.have_kwin = 1;
+  		conn->conn_data.have_kwin = 1;
 
-	if (!conn->conn_data.have_wl && !conn->conn_data.have_kwin && !conn->conn_data.have_xdg) {
+
+	if (!conn->conn_data.have_wl && !conn->conn_data.have_kwin && !conn->conn_data.have_xdg && !conn->conn_data.have_wlr) {
 		/* Well fuck */
 		free(conn);
 		return YUKINO_RESULT_UNSUPPORTED;

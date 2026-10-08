@@ -93,6 +93,7 @@ if(WAYLAND_FOUND AND WAYLAND_SCANNER)
 	endfunction()
 
 	gen_protocol(xdg-output-unstable-v1)
+	gen_protocol(wlr-screencopy-unstable-v1)
 
 	list(APPEND LIBRARIES ${WAYLAND_LINK_LIBRARIES})
 	list(APPEND INCLUDE ${WAYLAND_INCLUDE_DIRS})
@@ -103,8 +104,8 @@ endif()
 if(DBUS_FOUND)
 	list(APPEND LIBRARIES ${DBUS_LINK_LIBRARIES})
 	list(APPEND INCLUDE ${DBUS_INCLUDE_DIRS})
-	list(APPEND DEFINES "-DYUKINO_XDG=1 -DYUKINO_KWIN=1")
-	list(APPEND SRC_FILES sys/xdg.c sys/kwin.c)
+	list(APPEND DEFINES "-DYUKINO_XDG=1 -DYUKINO_KWIN=1 -DYUKINO_WLR=1")
+	list(APPEND SRC_FILES sys/xdg.c sys/kwin.c sys/wlr.c)
 endif()
 
 if(DBUS_FOUND
