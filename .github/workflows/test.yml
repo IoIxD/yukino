@@ -7,18 +7,13 @@ on:
 
 jobs:
   test:
-    # TODO test more variants; we should be regularly testing
-    #   - dynamic load / linked variants, for libraries
-    #   - maybe others as well; possibly we can force-disable
-    #     stuff like avx2 to be able to test MOAR variants
-
     runs-on: 'ubuntu-latest'
 
     steps:
-      - name: 'Install dependencies'
-        run: |
-          sudo apt-get update
-          #sudo apt-get install --fix-missing cmake
+      #- name: 'Install dependencies'
+      #  run: |
+      #    sudo apt-get update
+      #    #sudo apt-get install --fix-missing cmake
 
       - name: 'Checkout'
         uses: actions/checkout@v4
