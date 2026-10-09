@@ -341,6 +341,31 @@ static int get_desktop_res(SDL_Rect *prect, int *rrn, int *rrd)
 	return r;
 }
 
+static int init_sdl_video(void)
+{
+	/*
+	 * SDL is stupidly on the fence about supporting Wayland unless you have the
+	 * wp-fifo-v1 protocol. I'll never get why; these devs are much more
+	 * experienced then I and thus are most likely not wrong, but I just don't
+	 * get it. It's about the "swapchain being starved" but. I've deployed so
+	 * many handrolled wayland clients that either don't use wp-fifo-v1 or have
+	 * been tested on compositors that don't have it, all tested on both a 60hz
+	 * montior and my 144hz desktop monitor, and most of which use OpenGL or
+	 * even Vulkan. And if there's an visual issue caused by this, I just do not
+	 * notice it; it's at least not a big enough problem to warrant forcing it.
+	 *
+	 * Alas. We need Wayland specific features to operate on Wayland and thus we
+	 * have to override their "decision".
+	 */
+	SDL_Environment *env = SDL_GetEnvironment();
+	if (SDL_GetEnvironmentVariable(env, "WAYLAND_DISPLAY")
+		|| getenv("GAMESCOPE_WAYLAND_DISPLAY")) {
+		SDL_SetEnvironmentVariable(env, "SDL_VIDEO_DRIVER", "wayland", 1);
+	}
+
+	return SDL_Init(SDL_INIT_VIDEO);
+}
+
 int main(int argc, char *argv[])
 {
 	SDL_Surface *sur;
@@ -382,10 +407,14 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!SDL_Init(SDL_INIT_VIDEO))
+	if (!init_sdl_video())
 		return 1;
 
 	num_disp = get_desktop_res(&desk_res, &refresh_rate_num, &refresh_rate_den);
+	if (refresh_rate_num == 0)
+		refresh_rate_num = 60;
+	if (refresh_rate_den == 0)
+		refresh_rate_den = 60;
 	redraw_ns = SDL_NS_PER_SECOND * refresh_rate_den / refresh_rate_num;
 
 	{

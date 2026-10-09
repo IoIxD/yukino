@@ -45,7 +45,8 @@ struct process_image {
 	void *userdata;
 };
 
-static yukino_result_t get_resolution(const char *uri, uint32_t *pw, uint32_t *ph)
+static yukino_result_t get_resolution(
+	const char *uri, uint32_t *pw, uint32_t *ph)
 {
 	char *path;
 	yukino_result_t r;
@@ -125,7 +126,8 @@ static yukino_result_t process_image_uri(const char *uri, uint32_t rx,
 static yukino_result_t process_image_uri_cb(const char *uri, void *userdata)
 {
 	struct process_image *x = userdata;
-	return process_image_uri(uri, x->x, x->y, x->w, x->h, x->pixel_func, x->userdata);
+	return process_image_uri(
+		uri, x->x, x->y, x->w, x->h, x->pixel_func, x->userdata);
 }
 
 static yukino_result_t subscribe(
@@ -349,16 +351,17 @@ static yukino_result_t get_uri(struct yukino_xdg *conn, char **puri)
 			}
 		} while (dbus_message_iter_next(&res_dict));
 
-skip:
+	skip:
 		dbus_message_unref(sig);
 	}
 
 	return r;
 }
 
-static yukino_result_t yukino_xdg_take_impl_impl(struct yukino_xdg *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h, yukino_result_t (*cb)(const char *, void *),
-	void *userdata, const char *token, uint32_t target)
+static yukino_result_t yukino_xdg_take_impl_impl(struct yukino_xdg *conn,
+	uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+	yukino_result_t (*cb)(const char *, void *), void *userdata,
+	const char *token, uint32_t target)
 {
 	DBusPendingCall *pending;
 	yukino_result_t r;
@@ -399,17 +402,20 @@ static yukino_result_t yukino_xdg_take_impl_impl(struct yukino_xdg *conn, uint32
 }
 
 static yukino_result_t yukino_xdg_take_impl(struct yukino_xdg *conn, uint32_t x,
-					    uint32_t y, uint32_t w, uint32_t h, yukino_result_t (*cb)(const char *, void *),
-					    void *userdata, const char *token)
+	uint32_t y, uint32_t w, uint32_t h,
+	yukino_result_t (*cb)(const char *, void *), void *userdata,
+	const char *token)
 {
 	yukino_result_t r;
 
-	r = yukino_xdg_take_impl_impl(conn, x, y, w, h, cb, userdata, token, TARGET_SCREEN);
+	r = yukino_xdg_take_impl_impl(
+		conn, x, y, w, h, cb, userdata, token, TARGET_SCREEN);
 	/* Try giving the target value */
 	if (r == YUKINO_RESULT_OK)
 		return YUKINO_RESULT_OK;
 
-	r = yukino_xdg_take_impl_impl(conn, x, y, w, h, cb, userdata, token, TARGET_NONE);
+	r = yukino_xdg_take_impl_impl(
+		conn, x, y, w, h, cb, userdata, token, TARGET_NONE);
 	/* Try giving the target value */
 	if (r == YUKINO_RESULT_OK)
 		return YUKINO_RESULT_OK;
@@ -417,9 +423,9 @@ static yukino_result_t yukino_xdg_take_impl(struct yukino_xdg *conn, uint32_t x,
 	return YUKINO_RESULT_UNSUPPORTED;
 }
 
-static yukino_result_t yukino_xdg_take_token_wrapper(struct yukino_xdg *conn, uint32_t x,
-						     uint32_t y, uint32_t w, uint32_t h, yukino_result_t (*cb)(const char *, void *),
-						     void *userdata)
+static yukino_result_t yukino_xdg_take_token_wrapper(struct yukino_xdg *conn,
+	uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+	yukino_result_t (*cb)(const char *, void *), void *userdata)
 {
 	char *token;
 	yukino_result_t r;
@@ -449,10 +455,12 @@ yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
 	d.pixel_func = pixel_func;
 	d.userdata = userdata;
 
-	return yukino_xdg_take_token_wrapper(conn, x, y, w, h, process_image_uri_cb, &d);
+	return yukino_xdg_take_token_wrapper(
+		conn, x, y, w, h, process_image_uri_cb, &d);
 }
 
-yukino_result_t yukino_xdg_display_resolution(struct yukino_xdg *conn, uint32_t *w, uint32_t *h)
+yukino_result_t yukino_xdg_display_resolution(
+	struct yukino_xdg *conn, uint32_t *w, uint32_t *h)
 {
 	struct get_resolution d;
 	yukino_result_t r;
@@ -463,6 +471,8 @@ yukino_result_t yukino_xdg_display_resolution(struct yukino_xdg *conn, uint32_t 
 
 	*w = d.w;
 	*h = d.h;
+	printf("xdg %d %d\n", *w, *h);
+
 	return YUKINO_RESULT_OK;
 }
 
