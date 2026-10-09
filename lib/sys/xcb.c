@@ -244,6 +244,7 @@ static yukino_result_t yukino_xcb_window_iter(
 	for (; wi->wit < wi->wlen; wi->wit++) {
 		xcb_get_window_attributes_cookie_t wacookie;
 		xcb_get_window_attributes_reply_t *wareply;
+		uint8_t map_state;
 
 		wacookie = (wi->wacs)
 			? wi->wacs[wi->wit]
@@ -254,7 +255,10 @@ static yukino_result_t yukino_xcb_window_iter(
 		if (!wareply)
 			continue; /* ??? */
 
-		if (wareply->map_state != XCB_MAP_STATE_VIEWABLE)
+		map_state = wareply->map_state;
+		free(wareply);
+
+		if (map_state != XCB_MAP_STATE_VIEWABLE)
 			continue;
 
 		*pw = wi->w[wi->wit++];
@@ -564,6 +568,8 @@ yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn)
 			conn->conn_data.conn, atom_cookies[i], NULL);
 
 		conn->conn_data.atoms[i] = (reply) ? reply->atom : XCB_ATOM_NONE;
+
+		free(reply);
 	}
 
 	*pconn = conn;
