@@ -62,6 +62,20 @@ yukino_result_t yukino_image_read(struct yukino_image *m, unsigned char rgb[3]);
 yukino_result_t yukino_image_resolution(
 	struct yukino_image *m, uint32_t *w, uint32_t *h);
 
+struct yukino_error_info;
+
+struct yukino_error_db {
+	/* Note the double-pointer is not a mistake.
+	 * It's intentional. Doing it this way means that we only
+	 * have to make two allocations in the worst case. */
+	struct yukino_error_info **ei;
+	size_t ei_size;
+	size_t ei_alloc;
+
+	/* Provided by the user, this is the max size the error info can be */
+	size_t ei_max_size;
+};
+
 /* privates */
 struct yukino_connection {
 	/* Disconnect. This is the only function pointer that should never
@@ -115,6 +129,9 @@ struct yukino_connection {
 
 	/* Locking reference count. */
 	uint32_t lock_ref;
+
+	/* Error database -- don't touch this outside of yukino.c! */
+	struct yukino_error_db edb;
 
 #ifdef YUKINO_CONNECTION_DATA
 	/* Private data for each backend to define. */
@@ -202,5 +219,10 @@ yukino_result_t yukino_random(void *x, size_t n);
 
 yukino_result_t yukino_screenshot_fix_resolution(
 	yukino_connection_t *conn, uint32_t *w, uint32_t *h);
+
+/* Registers an error for a specific backend.
+ * The name is the identifier. */
+yukino_result_t yukino_error_register(yukino_connection_t *conn,
+	const char *name, const char *desc, yukino_result_t *pr);
 
 #endif /* YUKINO_C_H_ */

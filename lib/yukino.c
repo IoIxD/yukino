@@ -21,6 +21,11 @@
 
 #include <string.h>
 
+static yukino_result_t yukino_error_db_init(struct yukino_error_db *edb, size_t max_size);
+
+/* This value is huge, it should not be used for allocations */
+#define MAX_CUSTOM_ERRORS (-1 - YUKINO_RESULT_CONNECTION_END)
+
 yukino_result_t yukino_connect(yukino_connection_t **pconn)
 {
 	if (!pconn)
@@ -28,15 +33,22 @@ yukino_result_t yukino_connect(yukino_connection_t **pconn)
 
 #ifdef YUKINO_GIO
 	if (yukino_gio_connect(pconn) == YUKINO_RESULT_OK)
-		return YUKINO_RESULT_OK;
+		goto gotit;
 #endif
 
 #ifdef YUKINO_XCB
 	if (yukino_xcb_connect(pconn) == YUKINO_RESULT_OK)
-		return YUKINO_RESULT_OK;
+		goto gotit;
 #endif
 
 	return YUKINO_RESULT_UNSUPPORTED;
+
+gotit:
+	/* Initialize the shared parts */
+	(*pconn)->lock_ref = 0;
+	yukino_error_db_init(&(*pconn)->edb, MAX_CUSTOM_ERRORS);
+
+	return YUKINO_RESULT_OK;
 }
 
 yukino_result_t yukino_display_resolution(
@@ -325,6 +337,210 @@ yukino_result_t yukino_screenshot_fix_resolution(
 	/* Overwrite with the actual desktop resolution */
 	if ((r = yukino_display_resolution(conn, w, h)) < 0)
 		return r;
+
+	return YUKINO_RESULT_OK;
+}
+
+struct yukino_error_info {
+	/* description is not allocated itself, it is actually
+	 * just past the name */
+	char *description;
+
+	/* nothing else really... */
+	char name[];
+};
+
+static yukino_result_t yukino_error_info_alloc(struct yukino_error_info **pei, const char *name, const char *desc)
+{
+	struct yukino_error_info *ei;
+	size_t nlen;
+	size_t dlen;
+
+	nlen = strlen(name) + 1;
+	dlen = strlen(desc) + 1;
+
+	ei = malloc(sizeof(*ei) + nlen + dlen);
+	if (!ei)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	ei->description = ei->name + nlen;
+
+	memcpy(ei->name, name, nlen);
+	memcpy(ei->description, desc, dlen);
+
+	*pei = ei;
+	return YUKINO_RESULT_OK;
+}
+
+static void yukino_error_info_free(struct yukino_error_info *ei)
+{
+	/* Easy! */
+	free(ei);
+}
+
+/* ----- Error database */
+
+static yukino_result_t yukino_error_db_init(struct yukino_error_db *edb, size_t max_size)
+{
+	memset(edb, 0, sizeof(*edb));
+	edb->ei_max_size = max_size;
+	return YUKINO_RESULT_OK;
+}
+
+static yukino_result_t yukino_error_db_lookup(struct yukino_error_db *edb, const char *name, size_t *pi)
+{
+	size_t i;
+
+	for (i = 0; i < edb->ei_size; i++) {
+		if (strcmp(edb->ei[i]->name, name))
+			continue;
+
+		*pi = i;
+		return YUKINO_RESULT_OK;
+	}
+
+	return YUKINO_RESULT_NONE;
+}
+
+static yukino_result_t yukino_error_db_register(struct yukino_error_db *edb, const char *name, const char *desc,
+	size_t *perrcode)
+{
+	struct yukino_error_info *ei;
+	size_t errcode;
+	yukino_result_t r;
+
+	if ((r = yukino_error_db_lookup(edb, name, &errcode)) < 0)
+		return r;
+
+	if (r == YUKINO_RESULT_OK) {
+		*perrcode = errcode;
+		return YUKINO_RESULT_OK;
+	}
+
+	/* It's not already registered, so add it */
+	if (edb->ei_size >= edb->ei_max_size)
+		return YUKINO_RESULT_OUT_OF_MEMORY; /* need an E2BIG */
+
+	if (edb->ei_size >= edb->ei_alloc) {
+		/* realloc -- FIXME don't replicate this code everywhere */
+		size_t new_alloc = edb->ei_alloc ? (edb->ei_alloc << 1) : 8;
+		void *n = realloc(edb->ei, sizeof(*edb->ei) * new_alloc);
+		if (!n)
+			return YUKINO_RESULT_OUT_OF_MEMORY;
+		edb->ei = n;
+		edb->ei_alloc = new_alloc;
+	}
+
+	if ((r = yukino_error_info_alloc(&ei, name, desc)) < 0)
+		return r;
+
+	errcode = edb->ei_size++;
+	edb->ei[errcode] = ei;
+	*perrcode = errcode;
+
+	return YUKINO_RESULT_OK;
+}
+
+/* Nabs an error name/description for a code.
+ * These are valid for at least as long as the connection is open. */
+const char *yukino_error_name(yukino_connection_t *conn, yukino_result_t r)
+{
+	yukino_result_t rr;
+	size_t i;
+	struct yukino_error_info *ei;
+
+	if (r >= 0 || r < YUKINO_RESULT_CONNECTION_END) {
+		/* How can I be adopted when I have a twin sister? */
+		switch (r) {
+		case YUKINO_RESULT_UNSUPPORTED:
+			return "Unsupported";
+		case YUKINO_RESULT_OUT_OF_MEMORY:
+			return "Out of memory";
+		case YUKINO_RESULT_INVALID_PARAM:
+			return "Invalid param";
+		case YUKINO_RESULT_FILE_ERROR:
+			return "File error";
+		case YUKINO_RESULT_NO:
+			/* ??? */
+			return "No";
+
+		/* Success */
+		case YUKINO_RESULT_OK:
+			return "Ok";
+		case YUKINO_RESULT_DONE:
+			return "Done";
+		case YUKINO_RESULT_NONE:
+			return "None";
+		}
+
+		/* Think monkey, think */
+		return NULL;
+	}
+
+	i = -r - 1;
+
+	/* XXX would be better to not use this shit here */
+	if (i >= conn->edb.ei_size)
+		return NULL;
+
+	return conn->edb.ei[i]->name;
+}
+
+const char *yukino_error_description(yukino_connection_t *conn, yukino_result_t r)
+{
+	yukino_result_t rr;
+	size_t i;
+	struct yukino_error_info *ei;
+
+	if (r >= 0 || r < YUKINO_RESULT_CONNECTION_END) {
+		/* How can I be adopted when I have a twin sister? */
+		switch (r) {
+		case YUKINO_RESULT_UNSUPPORTED:
+			return "Operation is unsupported";
+		case YUKINO_RESULT_OUT_OF_MEMORY:
+			return "Out of memory";
+		case YUKINO_RESULT_INVALID_PARAM:
+			return "Invalid function parameter passed";
+		case YUKINO_RESULT_FILE_ERROR:
+			return "File error";
+		case YUKINO_RESULT_NO:
+			/* ??? */
+			return "No";
+
+		/* Success */
+		case YUKINO_RESULT_OK:
+			return "Success";
+		case YUKINO_RESULT_DONE:
+			return "Iterator is done";
+		case YUKINO_RESULT_NONE:
+			return "Item could not be found";
+		}
+
+		/* Think monkey, think */
+		return NULL;
+	}
+
+	i = -r - 1;
+
+	/* XXX would be better to not use this shit here */
+	if (i >= conn->edb.ei_size)
+		return NULL;
+
+	return conn->edb.ei[i]->description;
+}
+
+/* Registers a connection-specific error code. */
+yukino_result_t yukino_error_register(yukino_connection_t *conn,
+	const char *name, const char *desc, yukino_result_t *pr)
+{
+	size_t i;
+	yukino_result_t r, rr;
+
+	if ((r = yukino_error_db_register(&conn->edb, name, desc, &i)) < 0)
+		return r;
+
+	*pr = -1;
+	*pr -= i;
 
 	return YUKINO_RESULT_OK;
 }

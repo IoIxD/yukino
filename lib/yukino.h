@@ -35,6 +35,20 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/* typed enum */
+#if (__STDC_VERSION__ >= 202311L)
+# define YUKINO_TYPED_ENUM_BEGIN(name, type) \
+	typedef enum : type {
+# define YUKINO_TYPED_ENUM_END(name) \
+	} name;
+#else
+# define YUKINO_TYPED_ENUM_BEGIN(name, type) \
+	typedef type name; \
+	enum {
+# define YUKINO_TYPED_ENUM_END(name) \
+	};
+#endif
+
 /* Every window system ever uses something that can fit in 64-bits,
  * or a pointer, but 64-bit everywhere is probably safer for the
  * foreseeable future. */
@@ -56,19 +70,42 @@ typedef struct yukino_rect {
 	int32_t x, y, w, h;
 } yukino_rect_t;
 
-enum {
+YUKINO_TYPED_ENUM_BEGIN(yukino_result_t, int32_t)
+	/* Error values, counting up from the lowest. */
+
+	/* Yukino generic error codes:
+	 *
+	 * -0x80000000 - -0x7FFFFF00 */
 	YUKINO_RESULT_UNSUPPORTED = INT32_MIN,
 	YUKINO_RESULT_OUT_OF_MEMORY,
 	YUKINO_RESULT_INVALID_PARAM,
 	YUKINO_RESULT_FILE_ERROR,
 	YUKINO_RESULT_NO,
 
+	/* X11 server errors.
+	 * These values map directly to the X11 error codes:
+	 *
+	 * -0x7FFFFEFF - -0x7FFFFE00  */
+	YUKINO_RESULT_X11 = INT32_MIN + 0x101,
+
+	/* Errors mapped by the connection at runtime.
+	 *
+	 * These are specific to the connection currently
+	 * running. We count these backwards, and the errors
+	 * are registered for each connection as they happen.
+	 * This value is just a helper for the backend to know
+	 * what the minimum value is before it starts colluding
+	 * with other errors.
+	 *
+	 * -0x1 - -0x7FFFFDFF */
+	YUKINO_RESULT_CONNECTION_END = INT32_MIN + 0x201,
+
 	YUKINO_RESULT_OK = 0,
 	/* For iterators -- should also set stuff to NULL? */
 	YUKINO_RESULT_DONE,
 	/* For querying window at point */
 	YUKINO_RESULT_NONE,
-};
+YUKINO_TYPED_ENUM_END(yukino_result_t)
 
 /* ------------------------------------------------------------------------ */
 /* connect to the display */
@@ -186,5 +223,10 @@ YUKINO_SCREENSHOT(bmp)
 
 YUKINO_EXTERN yukino_result_t yukino_rect_has_point(
 	const yukino_rect_t *r, int32_t x, int32_t y);
+
+/* ------------------------------------------------------------------------ */
+
+YUKINO_EXTERN const char *yukino_error_name(yukino_connection_t *conn, yukino_result_t r);
+YUKINO_EXTERN const char *yukino_error_description(yukino_connection_t *conn, yukino_result_t r);
 
 #endif
