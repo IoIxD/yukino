@@ -403,110 +403,153 @@ static uint32_t read_pixel(
 	return pxl;
 }
 
-static yukino_result_t yukino_xcb_take_window(yukino_connection_t *conn,
-	yukino_window_t win, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-	yukino_pixel_proc_t pixel_func, void *userdata)
-{
+struct yukino_screenshot {
 	xcb_get_image_cookie_t cookie;
 	xcb_get_image_reply_t *reply;
+
+	uint32_t w, h;
+
+	/* Position, used for iterating, this is NOT the position
+	 * on the screen it was taken at. */
+	uint32_t x, y;
+	/* Current pointer into the data */
 	uint8_t *data;
+
 	uint8_t bpp;
 	unsigned int big_endian;
 	size_t stride;
-	/* :) */
+
 	uint32_t red_mask, green_mask, blue_mask;
 	uint32_t red_shift, green_shift, blue_shift;
 	uint32_t red_div, green_div, blue_div;
+};
 
-	{
-		xcb_visualtype_t *vistype;
+static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	yukino_screenshot_t *s;
+	xcb_visualtype_t *vistype;
+	yukino_result_t r;
+	xcb_window_t win;
 
-		/* meh */
-		vistype = find_visual_for_window(conn, win);
-		if (!vistype)
-			return YUKINO_RESULT_UNSUPPORTED;
+	win = conn->conn_data.default_display_screen->root;
+
+	if (w == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION || h == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) {
+		/* Overwrite with the actual desktop resolution */
+		if ((r = yukino_xcb_display_resolution(conn, &w, &h)) < 0)
+			return r;
+	}
+
+	s = malloc(sizeof(*s));
+	if (!s)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	/* Get the cookie first. */
+	s->cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win,
+		x, y, w, h, 0xFFFFFFFF);
+	/* We put this off until the first read */
+	s->reply = NULL;
+	s->w = w;
+	s->h = h;
+
+	/* Initialize iterators */
+	s->x = s->y = 0;
+
+	vistype = find_visual_for_window(conn, win);
+	if (!vistype) {
+		free(s);
+		return YUKINO_RESULT_UNSUPPORTED;
+	}
 
 #define FILL(color) \
 	do { \
-		color##_mask = vistype->color##_mask; \
-		color##_shift = yukino_ctz32(color##_mask); \
-		color##_div = color##_mask >> color##_shift; \
+		s->color##_mask = vistype->color##_mask; \
+		s->color##_shift = yukino_ctz32(s->color##_mask); \
+		s->color##_div = s->color##_mask >> s->color##_shift; \
 	} while (0)
 
-		FILL(red);
-		FILL(green);
-		FILL(blue);
+	FILL(red);
+	FILL(green);
+	FILL(blue);
 #undef FILL
-	}
 
-	cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win,
-		x, y, w, h, 0xFFFFFFFF);
-
-	reply = xcb_get_image_reply(conn->conn_data.conn, cookie, NULL);
-	if (!reply)
-		return YUKINO_RESULT_UNSUPPORTED;
-
-	data = xcb_get_image_data(reply);
-
-	{
-		const xcb_setup_t *setup;
-		const xcb_format_t *fmt;
-
-		setup = xcb_get_setup(conn->conn_data.conn);
-		big_endian = setup->bitmap_format_bit_order;
-
-		fmt = format_by_depth(setup, reply->depth);
-
-		bpp = fmt->bits_per_pixel;
-
-		/* calculate stride */
-		stride = w * bpp;
-		stride = stride + (stride % fmt->scanline_pad);
-		stride >>= 3;
-
-		if ((bpp > 32) || (xcb_get_image_data_length(reply) != (h * stride))) {
-			/* something is horribly wrong */
-			free(reply);
-			return YUKINO_RESULT_UNSUPPORTED;
-		}
-	}
-
-	/* note: reusing function args here as iterators */
-	for (y = 0; y < h; y++) {
-		for (x = 0; x < w; x++) {
-			yukino_result_t r;
-			uint32_t pxl;
-			unsigned char rgb[3];
-
-			pxl = read_pixel(data, x, bpp, big_endian);
-
-#define SCALE(x, color) \
-	((((x) & color##_mask) >> color##_shift) * 255 / color##_div)
-			rgb[0] = SCALE(pxl, red);
-			rgb[1] = SCALE(pxl, green);
-			rgb[2] = SCALE(pxl, blue);
-#undef SCALE
-
-			if ((r = pixel_func(userdata, rgb)) < 0) {
-				free(reply);
-				return r;
-			}
-		}
-		data += stride;
-	}
-
-	free(reply);
+	*ps = s;
 
 	return YUKINO_RESULT_OK;
 }
 
-static yukino_result_t yukino_xcb_take(yukino_connection_t *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
-	void *userdata)
+static yukino_result_t yukino_xcb_screenshot_resolution(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
-	return yukino_xcb_take_window(conn,
-		conn->conn_data.default_display_screen->root, x, y, w, h, pixel_func,
-		userdata);
+	*w = s->w;
+	*h = s->h;
+	return YUKINO_RESULT_OK;
+}
+
+#include <stdio.h>
+
+static yukino_result_t yukino_xcb_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+{
+	uint8_t *data;
+	uint32_t pxl;
+
+	/* Handle getting a reply if we don't have one already */
+	if (!s->reply) {
+		const xcb_format_t *fmt;
+		const xcb_setup_t *setup;
+
+		setup = xcb_get_setup(conn->conn_data.conn);
+		s->big_endian = setup->bitmap_format_bit_order;
+
+		s->reply = xcb_get_image_reply(conn->conn_data.conn, s->cookie, NULL);
+		if (!s->reply)
+			return YUKINO_RESULT_UNSUPPORTED;
+
+		fmt = format_by_depth(setup, s->reply->depth);
+
+		s->bpp = fmt->bits_per_pixel;
+
+		/* calculate stride */
+		s->stride = s->w * s->bpp;
+		s->stride = s->stride + (s->stride % fmt->scanline_pad);
+		s->stride >>= 3;
+
+		/* Any way to tell xcb to give up on a request? :) */
+		if ((s->bpp > 32) || (xcb_get_image_data_length(s->reply) != (s->h * s->stride))) {
+			free(s->reply);
+			s->reply = NULL;
+			return YUKINO_RESULT_UNSUPPORTED;
+		}
+
+		s->data = xcb_get_image_data(s->reply);
+	}
+
+	/* Don't go past the end */
+	if (s->y >= s->h)
+		return YUKINO_RESULT_DONE;
+
+	pxl = read_pixel(s->data, s->x, s->bpp, s->big_endian);
+
+#define SCALE(x, color) \
+	((((x) & s->color##_mask) >> s->color##_shift) * 255 / s->color##_div)
+	rgb[0] = SCALE(pxl, red);
+	rgb[1] = SCALE(pxl, green);
+	rgb[2] = SCALE(pxl, blue);
+#undef SCALE
+
+	s->x++;
+	if (s->x == s->w) {
+		s->x = 0;
+		s->y++;
+		s->data += s->stride;
+	}
+
+	return YUKINO_RESULT_OK;
+}
+
+static yukino_result_t yukino_xcb_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s)
+{
+	free(s->reply);
+	free(s);
+	return YUKINO_RESULT_OK;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -549,7 +592,13 @@ yukino_result_t yukino_xcb_connect(yukino_connection_t **pconn)
 	conn->lock = yukino_xcb_lock;
 	conn->unlock = yukino_xcb_unlock;
 
-	conn->take = yukino_xcb_take;
+	conn->screenshot = yukino_xcb_screenshot;
+	conn->screenshot_resolution = yukino_xcb_screenshot_resolution;
+	conn->screenshot_read = yukino_xcb_screenshot_read;
+	conn->screenshot_delete = yukino_xcb_screenshot_delete;
+
+	/* Use impl on top of screenshot */
+	conn->take = NULL;
 
 	for (i = 0; i < ATOM_MAX_; i++) {
 		xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(
