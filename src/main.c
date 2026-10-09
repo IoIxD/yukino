@@ -34,52 +34,45 @@
 /* ------------------------------------------------------------------------ */
 /* grab the whole screen and shove it into a SDL_Surface */
 
-struct sdl_take_pixel {
-	SDL_Surface *sur;
-	int x, y;
-};
-
-static yukino_result_t sdl_take_pixel(
-	void *userdata, const unsigned char rgb[3])
-{
-	struct sdl_take_pixel *sur = userdata;
-	uint32_t *px;
-
-	if (sur->x == sur->sur->w) {
-		sur->y++;
-		sur->x = 0;
-	}
-
-	px = (uint32_t *)((char *)sur->sur->pixels + (sur->sur->pitch * sur->y))
-		+ sur->x;
-
-	*px = 0xFF000000 | ((uint32_t)rgb[2] << 16) | ((uint32_t)rgb[1] << 8)
-		| rgb[0];
-
-	sur->x++;
-	return YUKINO_RESULT_OK;
-}
-
 static SDL_Surface *sdl_screenshot(
 	yukino_connection_t *conn, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-	struct sdl_take_pixel s;
+	/* Humpty dumpty sat on a wall */
+	SDL_Surface *sur;
+	yukino_screenshot_t *s;
+	unsigned char *px;
+	yukino_result_t r;
 
-	s.sur = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
-	if (!s.sur)
+	if (yukino_screenshot_create(conn, &s, x, y, w, h) < 0)
 		return NULL;
 
-	s.x = s.y = 0;
-
-	if (yukino_screenshot(conn, x, y, w, h, sdl_take_pixel, &s) < 0) {
-		SDL_DestroySurface(s.sur);
+	/* Retrieve the actual resolution and use that to allocate our surface */
+	if (yukino_screenshot_resolution(conn, s, &w, &h) < 0) {
+		yukino_screenshot_delete(conn, s);
 		return NULL;
 	}
 
-	return s.sur;
+	sur = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGB24);
+	if (!sur) {
+		yukino_screenshot_delete(conn, s);
+		return NULL;
+	}
+
+	/* Reel it in */
+	px = sur->pixels;
+	while ((r = yukino_screenshot_read(conn, s, px)) != YUKINO_RESULT_DONE)
+		px += 3;
+	yukino_screenshot_delete(conn, s);
+
+	if (r < 0) {
+		SDL_DestroySurface(sur);
+		return NULL;
+	}
+
+	return sur;
 }
 
-/* Takes a screenshot of the whole display */
+/* Takes a screenshot of the whole desktop */
 static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 {
 	yukino_result_t r;
@@ -88,7 +81,8 @@ static SDL_Surface *sdl_screenshot_display(yukino_connection_t *conn)
 	if ((r = yukino_display_resolution(conn, &w, &h)) < 0)
 		return NULL;
 
-	return sdl_screenshot(conn, 0, 0, w, h);
+	return sdl_screenshot(conn, 0, 0, YUKINO_SCREENSHOT_DESKTOP_RESOLUTION,
+		YUKINO_SCREENSHOT_DESKTOP_RESOLUTION);
 }
 
 /* ------------------------------------------------------------------------ */
