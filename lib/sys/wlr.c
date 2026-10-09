@@ -30,6 +30,10 @@
 #include <sys/mman.h>
 #include <unistd.h> /* unlink */
 
+#ifdef __x86_64__
+# include <emmintrin.h>
+#endif
+
 #include <xdg-output-unstable-v1.h>
 
 struct yukino_wlr_display {
@@ -100,7 +104,7 @@ static void registry_handle_global(void *data, struct wl_registry *registry,
 		if (!wlr->outputs) {
 			wlr->outputs = malloc(sizeof(*wlr->outputs) * wlr->num_outputs);
 		} else {
-			void *n = realloc(
+			wlr->outputs = realloc(
 				wlr->outputs, sizeof(struct wl_output *) * wlr->num_outputs);
 		}
 		struct yukino_wlr_display *out = wlr->outputs[wlr->num_outputs - 1]
@@ -154,7 +158,7 @@ static void zwlr_buffer(void *data, struct zwlr_screencopy_frame_v1 *frame,
 
 	unlink(temp_name);
 
-  /* posix_fallocate returns the error rather than setting errno */
+	/* posix_fallocate returns the error rather than setting errno */
 	if ((err = posix_fallocate(display->fd, 0, display->buf_size)) != 0) {
 		printf(
 			"failure setting up wl_shm (front buf): could not fallocate %llu "
@@ -213,13 +217,39 @@ static struct zwlr_screencopy_frame_v1_listener wlr_frame_listener = {
 	.failed = zwlr_failed,
 };
 
-yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
-	uint32_t width, uint32_t height, yukino_pixel_proc_t pixel_func,
-	void *userdata)
+struct yukino_screenshot {
+	uint32_t w, h;
+	uint32_t mx, my;
+};
+
+yukino_result_t yukino_wlr_screenshot(struct yukino_wlr *conn,
+	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t width,
+	uint32_t height)
 {
 	yukino_result_t r;
+	yukino_screenshot_t *s;
 	struct zwlr_screencopy_frame_v1 *frame = NULL;
-	int mx, my;
+
+	if (width == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION
+		|| height == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) {
+		uint32_t dw, dh;
+
+		if ((r = yukino_wayland_display_resolution(conn->wl, &dw, &dh)) < 0)
+			return r;
+		if (width == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+			width = dw;
+		if (height == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+			height = dh;
+	}
+
+	s = malloc(sizeof(*s));
+	if (!s)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	s->w = width;
+	s->h = height;
+	s->mx = 0;
+	s->my = 0;
 
 	for (int i = 0; i < conn->num_outputs; i++) {
 		struct yukino_wlr_display *out = conn->outputs[i];
@@ -229,44 +259,87 @@ yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
 
 		out->rw = width;
 		out->rh = height;
-		out->ud = userdata;
+		/* still set from the last capture otherwise */
+		out->ready = 0;
 
 		while (!out->ready) {
 			wl_display_roundtrip(conn->wl->display);
+/* not super useful since this isn't a busy loop but it can't hurt */
+#ifdef __x86_64__
+			_mm_pause();
+#endif
 		}
+
+		zwlr_screencopy_frame_v1_destroy(frame);
 	}
 
-	for (my = 0; my < height; my++) {
-		for (mx = 0; mx < width; mx++) {
-			int monitor_found = 0;
-			for (int i = 0; i < conn->num_outputs; i++) {
-				struct yukino_wlr_display *out = conn->outputs[i];
+	*ps = s;
+	return YUKINO_RESULT_OK;
+}
 
-				if (mx > out->x && mx < out->x + out->mw && my > out->y
-					&& my < out->y + out->mh) {
-					monitor_found = 1;
-					yukino_result_t res
-						= pixel_func(userdata, (uint8_t *)out->pxl + (mx * 4));
-					if (res < 0) {
-						return res;
-					}
-					break;
-				}
-			}
-			if (monitor_found != 1) {
-				static uint8_t dummy[3] = {0};
-				yukino_result_t res = pixel_func(userdata, dummy);
-				if (res < 0) {
-					return res;
-				}
-			}
+yukino_result_t yukino_wlr_screenshot_resolution(
+	struct yukino_wlr *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+{
+	*w = s->w;
+	*h = s->h;
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_wlr_screenshot_read(
+	struct yukino_wlr *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+{
+	int monitor_found = 0;
+	uint32_t mx = s->mx, my = s->my;
+
+	if (my >= s->h)
+		return YUKINO_RESULT_DONE;
+
+	for (int i = 0; i < conn->num_outputs; i++) {
+		struct yukino_wlr_display *out = conn->outputs[i];
+
+		if (mx >= out->x && mx < out->x + out->mw && my >= out->y
+			&& my < out->y + out->mh) {
+			monitor_found = 1;
+			memcpy(rgb, (uint8_t *)out->pxl + (mx * 4), 3);
+			break;
 		}
+	}
+	if (monitor_found != 1)
+		memset(rgb, 0, 3);
+
+	s->mx++;
+	if (s->mx == s->w) {
+		s->mx = 0;
+		s->my++;
 		for (int i = 0; i < conn->num_outputs; i++) {
 			struct yukino_wlr_display *out = conn->outputs[i];
 			out->pxl += out->stride;
 		}
 	}
 
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_wlr_screenshot_delete(
+	struct yukino_wlr *conn, yukino_screenshot_t *s)
+{
+	for (int i = 0; i < conn->num_outputs; i++) {
+		struct yukino_wlr_display *out = conn->outputs[i];
+
+		if (out->shm_buffer)
+			wl_buffer_destroy(out->shm_buffer);
+		if (out->shm_pool)
+			wl_shm_pool_destroy(out->shm_pool);
+		if (out->buf)
+			munmap(out->buf, out->buf_size);
+		close(out->fd);
+
+		out->shm_buffer = NULL;
+		out->shm_pool = NULL;
+		out->buf = out->pxl = NULL;
+	}
+
+	free(s);
 	return YUKINO_RESULT_OK;
 }
 
@@ -287,7 +360,12 @@ yukino_result_t yukino_wlr_init(
 	wl_display_roundtrip(wl->display);
 	wl_display_roundtrip(wl->display);
 
+	/* Everything we need is bound by now */
+	wl_registry_destroy(registry);
+
 	if (wlr->screencopy == NULL) {
+		/* gio won't call quit for us if we fail here */
+		yukino_wlr_quit(wlr, wl);
 		return YUKINO_RESULT_UNSUPPORTED;
 	}
 
@@ -300,4 +378,28 @@ void yukino_wlr_quit(struct yukino_wlr *wlr, struct yukino_wayland *wl)
 {
 	if (!wlr)
 		return;
+
+	for (int i = 0; i < wlr->num_outputs; i++) {
+		struct yukino_wlr_display *out = wlr->outputs[i];
+
+		if (out->xdg_output)
+			zxdg_output_v1_destroy(out->xdg_output);
+		if (out->output)
+			wl_output_destroy(out->output);
+		free(out);
+	}
+	free(wlr->outputs);
+	wlr->outputs = NULL;
+	wlr->num_outputs = 0;
+
+	if (wlr->screencopy)
+		zwlr_screencopy_manager_v1_destroy(wlr->screencopy);
+	if (wlr->om)
+		zxdg_output_manager_v1_destroy(wlr->om);
+	if (wlr->shm)
+		wl_shm_destroy(wlr->shm);
+
+	wlr->screencopy = NULL;
+	wlr->om = NULL;
+	wlr->shm = NULL;
 }

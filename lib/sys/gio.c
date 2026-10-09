@@ -84,17 +84,6 @@ static yukino_result_t yukino_gio_unlock(yukino_connection_t *conn)
 	return YUKINO_RESULT_UNSUPPORTED;
 }
 
-static yukino_result_t yukino_gio_take(yukino_connection_t *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
-	void *userdata)
-{
-	if (conn->conn_data.have_wlr)
-		return yukino_wlr_take(
-			&conn->conn_data.wlr, x, y, w, h, pixel_func, userdata);
-
-	return YUKINO_RESULT_UNSUPPORTED;
-}
-
 static yukino_result_t yukino_gio_window_iter_start(yukino_connection_t *conn,
 	const yukino_window_t *win, yukino_window_iter_t **pwi)
 {
@@ -147,6 +136,8 @@ static yukino_result_t yukino_gio_window_decorated_position(
 yukino_result_t yukino_gio_screenshot(yukino_connection_t *conn,
 	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
+	if (conn->conn_data.have_wlr)
+		return yukino_wlr_screenshot(&conn->conn_data.wlr, ps, x, y, w, h);
 	if (conn->conn_data.have_xdg)
 		return yukino_xdg_screenshot(conn, &conn->conn_data.xdg, ps, x, y, w, h);
 
@@ -155,6 +146,8 @@ yukino_result_t yukino_gio_screenshot(yukino_connection_t *conn,
 yukino_result_t yukino_gio_screenshot_resolution(
 	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
+	if (conn->conn_data.have_wlr)
+		return yukino_wlr_screenshot_resolution(&conn->conn_data.wlr, s, w, h);
 	if (conn->conn_data.have_xdg)
 		return yukino_xdg_screenshot_resolution(conn, &conn->conn_data.xdg, s, w, h);
 
@@ -163,6 +156,8 @@ yukino_result_t yukino_gio_screenshot_resolution(
 yukino_result_t yukino_gio_screenshot_read(
 	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
+	if (conn->conn_data.have_wlr)
+		return yukino_wlr_screenshot_read(&conn->conn_data.wlr, s, rgb);
 	if (conn->conn_data.have_xdg)
 		return yukino_xdg_screenshot_read(conn, &conn->conn_data.xdg, s, rgb);
 
@@ -171,6 +166,8 @@ yukino_result_t yukino_gio_screenshot_read(
 yukino_result_t yukino_gio_screenshot_delete(
 	yukino_connection_t *conn, yukino_screenshot_t *s)
 {
+	if (conn->conn_data.have_wlr)
+		return yukino_wlr_screenshot_delete(&conn->conn_data.wlr, s);
 	if (conn->conn_data.have_xdg)
 		return yukino_xdg_screenshot_delete(&conn->conn_data.xdg, s);
 
@@ -244,7 +241,8 @@ yukino_result_t yukino_gio_connect(yukino_connection_t **pconn)
 	conn->lock = yukino_gio_lock;
 	conn->unlock = yukino_gio_unlock;
 
-	conn->take = yukino_gio_take;
+	/* Use impl on top of screenshot */
+	conn->take = NULL;
 
 	conn->screenshot = yukino_gio_screenshot;
 	conn->screenshot_delete = yukino_gio_screenshot_delete;
