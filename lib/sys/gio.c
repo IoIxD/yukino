@@ -161,16 +161,19 @@ yukino_result_t yukino_gio_connect(yukino_connection_t **pconn)
 	}
 	conn->conn_data.have_wl = 1;
 
+	conn->conn_data.have_kwin = 0;
+	conn->conn_data.have_xdg = 0;
+	conn->conn_data.use_kwin = 0;
 
-	if (yukino_wlr_init(&conn->conn_data.wlr, &conn->conn_data.wl) >= 0)
-		conn->conn_data.have_wlr = 1;
+	if (yukino_wlr_init(&conn->conn_data.wlr, &conn->conn_data.wl) >= 0) {
+	    conn->conn_data.have_wlr = 1;
+    } else {
+    	if (yukino_xdg_init(&conn->conn_data.xdg) >= 0)
+      		conn->conn_data.have_xdg = 1;
 
-	if (yukino_xdg_init(&conn->conn_data.xdg) >= 0)
-  		conn->conn_data.have_xdg = 1;
-
-	if (yukino_kwin_init(&conn->conn_data.kwi) >= 0)
-  		conn->conn_data.have_kwin = 1;
-
+    	if (yukino_kwin_init(&conn->conn_data.kwi) >= 0)
+      		conn->conn_data.have_kwin = 1;
+    }
 
 	if (!conn->conn_data.have_wl && !conn->conn_data.have_kwin && !conn->conn_data.have_xdg && !conn->conn_data.have_wlr) {
 		/* Well fuck */

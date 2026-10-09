@@ -43,6 +43,7 @@ struct yukino_wlr_display {
   int rw, rh;
   int fd;
   void *buf, *ud, *pxl;
+  int ready;
 };
 
 static void handle_xdg_output_logical_position(
@@ -160,7 +161,7 @@ static void zwlr_buffer(void *data, struct zwlr_screencopy_frame_v1 *frame,
     return;
   }
 
-  display->buf = display->pxl =
+  display->pxl = display->buf =
       mmap(NULL, display->buf_size, PROT_WRITE, MAP_SHARED, display->fd, 0);
 
   fsync(display->fd);
@@ -170,13 +171,12 @@ static void zwlr_buffer(void *data, struct zwlr_screencopy_frame_v1 *frame,
     printf("failure setting up wl_shm: could not create pool.\n");
   }
 
-  printf("w h %d %d format %08X\n", width, height, format);
   display->shm_buffer = wl_shm_pool_create_buffer(display->shm_pool, 0, width,
                                                   height, stride, format);
   display->w = width;
   display->h = height;
   display->stride = stride;
-
+  display->ready = 0;
   zwlr_screencopy_frame_v1_copy(frame, display->shm_buffer);
 };
 static void
@@ -185,10 +185,12 @@ zwlr_flags(void *data,
            uint32_t flags) {
   struct yukino_wlr_display *conn = data;
 };
-static void
-zwlr_ready(void *data,
-           struct zwlr_screencopy_frame_v1 *zwlr_screencopy_frame_v1,
-           uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {};
+static void zwlr_ready(void *data, struct zwlr_screencopy_frame_v1 *frame,
+                       uint32_t tv_sec_hi, uint32_t tv_sec_lo,
+                       uint32_t tv_nsec) {
+  struct yukino_wlr_display *display = data;
+  display->ready = 1;
+};
 static void
 zwlr_failed(void *data,
             struct zwlr_screencopy_frame_v1 *zwlr_screencopy_frame_v1) {
@@ -211,6 +213,7 @@ yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
                                 void *userdata) {
   yukino_result_t r;
   struct zwlr_screencopy_frame_v1 *frame = NULL;
+  int mx, my;
 
   for (int i = 0; i < conn->num_outputs; i++) {
     struct yukino_wlr_display *out = conn->outputs[i];
@@ -222,30 +225,28 @@ yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
     out->rh = height;
     out->ud = userdata;
 
-    wl_display_roundtrip(conn->wl->display);
-    wl_display_roundtrip(conn->wl->display);
+    while(!out->ready) {
+        wl_display_roundtrip(conn->wl->display);
+    }
   }
 
-  for (y = 0; y < height; y++) {
-    for (x = 0; x < width; x++) {
+  for (my = 0; my < height; my++) {
+    for (mx = 0; mx < width; mx++) {
       int monitor_found = 0;
       for (int i = 0; i < conn->num_outputs; i++) {
         struct yukino_wlr_display *out = conn->outputs[i];
 
-        if (x > out->x && x < out->x + out->mw && y > out->y &&
-            y < out->y + out->mh) {
-          // int _rx = (x - out->x);
-          // int _ry = (y - out->y);
-          // int idx = (_ry * width) + _rx;
-          int res = pixel_func(userdata, (uint8_t *)out->pxl + (x * 4));
+        if (mx > out->x && mx < out->x + out->mw && my > out->y &&
+            my < out->y + out->mh) {
+          monitor_found = 1;
+          int res = pixel_func(userdata, (uint8_t *)out->pxl + (mx * 4));
           if (res < 0) {
             return YUKINO_RESULT_UNSUPPORTED;
           }
-          monitor_found = 1;
           break;
         }
       }
-      if (!monitor_found) {
+      if (monitor_found != 1) {
         uint8_t dummy[16] = {0};
         int res = pixel_func(userdata, dummy);
         if (res < 0) {

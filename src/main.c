@@ -386,6 +386,8 @@ int main(int argc, char *argv[])
 		return 1;
 
 	num_disp = get_desktop_res(&desk_res, &refresh_rate_num, &refresh_rate_den);
+	if(refresh_rate_num == 0) refresh_rate_num=60;
+	if(refresh_rate_den == 0) refresh_rate_den=60;
 	redraw_ns = SDL_NS_PER_SECOND * refresh_rate_den / refresh_rate_num;
 
 	{
