@@ -150,6 +150,9 @@ YUKINO_WRITE(ppm)
 /* ------------------------------------------------------------------------ */
 /* take a screenshot */
 
+/* moving this here */
+typedef struct yukino_screenshot yukino_screenshot_t;
+
 /* Magic width/height value, passed into either the w or h of
  * yukino_screenshot_create to just get a screenshot of the desktop. */
 #define YUKINO_SCREENSHOT_DESKTOP_RESOLUTION UINT32_C(0xFFFFFFFF)
@@ -183,8 +186,5 @@ YUKINO_SCREENSHOT(bmp)
 
 YUKINO_EXTERN yukino_result_t yukino_rect_has_point(
 	const yukino_rect_t *r, int32_t x, int32_t y);
-
-/* moving this here */
-typedef struct yukino_screenshot yukino_screenshot_t;
 
 #endif
