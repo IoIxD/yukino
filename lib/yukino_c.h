@@ -31,7 +31,8 @@
 # define YUKINO_INLINE static inline
 #endif
 
-/* Pass this value to yukino_screenshot to get a screenshot of the entire desktop */
+/* Pass this value to yukino_screenshot to get a screenshot of the entire
+ * desktop */
 #define YUKINO_SCREENSHOT_DESKTOP_RESOLUTION UINT32_C(0xFFFFFFFF)
 
 /* private screenshot API; not currently exported as it isn't implemented
@@ -40,11 +41,15 @@
  * than strictly 8-bit RGB. */
 /* This will eventually be renamed to yukino_screenshot once the old API
  * is no more */
-yukino_result_t yukino_screenshot_create(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
-yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
+yukino_result_t yukino_screenshot_create(yukino_connection_t *conn,
+	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn,
+	yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
 /* returns YUKINO_RESULT_DONE if there are no bytes left */
-yukino_result_t yukino_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
-yukino_result_t yukino_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s);
+yukino_result_t yukino_screenshot_read(
+	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
+yukino_result_t yukino_screenshot_delete(
+	yukino_connection_t *conn, yukino_screenshot_t *s);
 
 /* Image reader, converts an image pixel-by-pixel into 8-bit RGB. */
 struct yukino_image {
@@ -65,8 +70,8 @@ struct yukino_image {
 	uint32_t red_div, green_div, blue_div;
 };
 
-/* Creates an iterator over some image data that allows reading 8-bit rgb values,
- * as well as cropping the data to a specific x,y,w,h */
+/* Creates an iterator over some image data that allows reading 8-bit rgb
+ * values, as well as cropping the data to a specific x,y,w,h */
 yukino_result_t yukino_image(struct yukino_image *m, const void *buf,
 	uint8_t bpp, uint32_t red_mask, uint32_t green_mask, uint32_t blue_mask,
 	uint32_t endian, size_t stride,
@@ -74,7 +79,8 @@ yukino_result_t yukino_image(struct yukino_image *m, const void *buf,
 	uint32_t cx, uint32_t cy, uint32_t cw, uint32_t ch);
 /* Reads RGB values */
 yukino_result_t yukino_image_read(struct yukino_image *m, unsigned char rgb[3]);
-yukino_result_t yukino_image_resolution(struct yukino_image *m, uint32_t *w, uint32_t *h);
+yukino_result_t yukino_image_resolution(
+	struct yukino_image *m, uint32_t *w, uint32_t *h);
 
 /* privates */
 struct yukino_connection {
@@ -110,10 +116,15 @@ struct yukino_connection {
 		uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
 
 	/* Takes a screenshot. Then you can do a bunch of different things */
-	yukino_result_t (*screenshot)(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
-	yukino_result_t (*screenshot_resolution)(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
-	yukino_result_t (*screenshot_read)(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
-	yukino_result_t (*screenshot_delete)(yukino_connection_t *conn, yukino_screenshot_t *s);
+	yukino_result_t (*screenshot)(yukino_connection_t *conn,
+		yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w,
+		uint32_t h);
+	yukino_result_t (*screenshot_resolution)(yukino_connection_t *conn,
+		yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
+	yukino_result_t (*screenshot_read)(yukino_connection_t *conn,
+		yukino_screenshot_t *s, unsigned char rgb[3]);
+	yukino_result_t (*screenshot_delete)(
+		yukino_connection_t *conn, yukino_screenshot_t *s);
 
 	/* Locks and unlocks the display server, if possible, otherwise
 	 * return YUKINO_RESULT_UNSUPPORTED. This does not have to be
@@ -209,6 +220,7 @@ yukino_result_t yukino_uri_get_file_path(const char *p, char **res);
  * Currently hardcoded for /dev/urandom and has no fallback */
 yukino_result_t yukino_random(void *x, size_t n);
 
-yukino_result_t yukino_screenshot_fix_resolution(yukino_connection_t *conn, uint32_t *w, uint32_t *h);
+yukino_result_t yukino_screenshot_fix_resolution(
+	yukino_connection_t *conn, uint32_t *w, uint32_t *h);
 
 #endif /* YUKINO_C_H_ */

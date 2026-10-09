@@ -414,7 +414,8 @@ struct yukino_screenshot {
 	uint32_t w, h;
 };
 
-static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn,
+	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	yukino_screenshot_t *s;
 	yukino_result_t r;
@@ -431,8 +432,8 @@ static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_s
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 
 	/* Get the cookie first. */
-	s->cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win,
-		x, y, w, h, 0xFFFFFFFF);
+	s->cookie = xcb_get_image(conn->conn_data.conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+		win, x, y, w, h, 0xFFFFFFFF);
 	/* We put this off until the first read */
 	s->reply = NULL;
 	s->w = w;
@@ -449,7 +450,8 @@ static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_s
 	return YUKINO_RESULT_OK;
 }
 
-static yukino_result_t yukino_xcb_screenshot_resolution(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+static yukino_result_t yukino_xcb_screenshot_resolution(
+	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
 	*w = s->w;
 	*h = s->h;
@@ -458,7 +460,8 @@ static yukino_result_t yukino_xcb_screenshot_resolution(yukino_connection_t *con
 
 #include <stdio.h>
 
-static yukino_result_t yukino_xcb_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+static yukino_result_t yukino_xcb_screenshot_read(
+	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
 	uint8_t *data;
 	uint32_t pxl;
@@ -483,20 +486,25 @@ static yukino_result_t yukino_xcb_screenshot_read(yukino_connection_t *conn, yuk
 		stride >>= 3;
 
 		/* Any way to tell xcb to give up on a request? :) */
-		if ((fmt->bits_per_pixel > 32) || (xcb_get_image_data_length(s->reply) != (s->h * stride))) {
+		if ((fmt->bits_per_pixel > 32)
+			|| (xcb_get_image_data_length(s->reply) != (s->h * stride))) {
 			free(s->reply);
 			s->reply = NULL;
 			return YUKINO_RESULT_UNSUPPORTED;
 		}
 
 		/* No need to perform clipping client-side, the server does it for us */
-		yukino_image(&s->mbuf, xcb_get_image_data(s->reply), fmt->bits_per_pixel, s->vistype->red_mask, s->vistype->green_mask, s->vistype->blue_mask, setup->bitmap_format_bit_order, stride, 0, 0, s->w, s->h);
+		yukino_image(&s->mbuf, xcb_get_image_data(s->reply),
+			fmt->bits_per_pixel, s->vistype->red_mask, s->vistype->green_mask,
+			s->vistype->blue_mask, setup->bitmap_format_bit_order, stride, 0, 0,
+			s->w, s->h);
 	}
 
 	return yukino_image_read(&s->mbuf, rgb);
 }
 
-static yukino_result_t yukino_xcb_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s)
+static yukino_result_t yukino_xcb_screenshot_delete(
+	yukino_connection_t *conn, yukino_screenshot_t *s)
 {
 	free(s->reply);
 	free(s);

@@ -255,7 +255,7 @@ static yukino_result_t get_uri(struct yukino_xdg *conn, char **puri)
 			}
 		} while (dbus_message_iter_next(&res_dict));
 
-	skip:
+skip:
 		dbus_message_unref(sig);
 	}
 
@@ -318,8 +318,8 @@ yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
 }
 
 /* Receive the result :) */
-static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
-	yukino_screenshot_t *s)
+static yukino_result_t yukino_xdg_receive(
+	struct yukino_xdg *conn, yukino_screenshot_t *s)
 {
 	yukino_result_t r;
 	char *uri, *path;
@@ -372,17 +372,20 @@ static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
 	free(path);
 
 	/* Set these to the proper values */
-	if (s->cw == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) s->cw = w;
-	if (s->ch == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) s->ch = h;
+	if (s->cw == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+		s->cw = w;
+	if (s->ch == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+		s->ch = h;
 
 	/* And we're off */
-	yukino_image(&s->mbuf, s->data, 32, 0xFF000000, 0x00FF0000, 0x0000FF00, YUKINO_IMAGE_ENDIAN_BIG, w * 4, s->cx, s->cy, s->cw, s->ch);
+	yukino_image(&s->mbuf, s->data, 32, 0xFF000000, 0x00FF0000, 0x0000FF00,
+		YUKINO_IMAGE_ENDIAN_BIG, w * 4, s->cx, s->cy, s->cw, s->ch);
 
 	return YUKINO_RESULT_OK;
 }
 
-yukino_result_t yukino_xdg_screenshot_resolution(struct yukino_xdg *conn,
-	yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+yukino_result_t yukino_xdg_screenshot_resolution(
+	struct yukino_xdg *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
 	yukino_result_t r;
 
@@ -392,8 +395,8 @@ yukino_result_t yukino_xdg_screenshot_resolution(struct yukino_xdg *conn,
 	return yukino_image_resolution(&s->mbuf, w, h);
 }
 
-yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
-	yukino_screenshot_t *s, unsigned char rgb[3])
+yukino_result_t yukino_xdg_screenshot_read(
+	struct yukino_xdg *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
 	yukino_result_t r;
 
@@ -403,8 +406,8 @@ yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
 	return yukino_image_read(&s->mbuf, rgb);
 }
 
-yukino_result_t yukino_xdg_screenshot_delete(struct yukino_xdg *conn,
-	yukino_screenshot_t *s)
+yukino_result_t yukino_xdg_screenshot_delete(
+	struct yukino_xdg *conn, yukino_screenshot_t *s)
 {
 	if (s->data) {
 		free(s->data);

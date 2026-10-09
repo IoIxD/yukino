@@ -20,8 +20,7 @@
 
 yukino_result_t yukino_image(struct yukino_image *m, const void *buf,
 	uint8_t bpp, uint32_t red_mask, uint32_t green_mask, uint32_t blue_mask,
-	uint32_t endian,
-	size_t stride,
+	uint32_t endian, size_t stride,
 	/* the coordinates etc. to clip to */
 	uint32_t cx, uint32_t cy, uint32_t cw, uint32_t ch)
 {
@@ -50,9 +49,13 @@ yukino_result_t yukino_image(struct yukino_image *m, const void *buf,
 
 	if (endian == YUKINO_IMAGE_ENDIAN_NATIVE) {
 		/* meh */
-		union { uint32_t x; uint32_t c[4]; } e;
+		union {
+			uint32_t x;
+			uint32_t c[4];
+		} e;
 		e.x = 0x12345678;
-		m->endian = (e.c[0] == 0x12) ? YUKINO_IMAGE_ENDIAN_BIG : YUKINO_IMAGE_ENDIAN_LITTLE;
+		m->endian = (e.c[0] == 0x12) ? YUKINO_IMAGE_ENDIAN_BIG
+									 : YUKINO_IMAGE_ENDIAN_LITTLE;
 	} else {
 		m->endian = endian;
 	}
@@ -119,7 +122,8 @@ yukino_result_t yukino_image_read(struct yukino_image *s, unsigned char rgb[3])
 	return YUKINO_RESULT_OK;
 }
 
-yukino_result_t yukino_image_resolution(struct yukino_image *m, uint32_t *w, uint32_t *h)
+yukino_result_t yukino_image_resolution(
+	struct yukino_image *m, uint32_t *w, uint32_t *h)
 {
 	*w = m->w;
 	*h = m->h;

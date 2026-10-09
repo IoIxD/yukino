@@ -19,8 +19,8 @@
 #include "yukino.h"
 #include "yukino_c.h"
 
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
 static int check(const char *s, size_t n, uint32_t expect)
 {

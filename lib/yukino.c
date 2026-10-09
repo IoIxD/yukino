@@ -108,14 +108,16 @@ yukino_result_t yukino_window_decorated_position(
 		: YUKINO_RESULT_UNSUPPORTED;
 }
 
-yukino_result_t yukino_screenshot_create(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+yukino_result_t yukino_screenshot_create(yukino_connection_t *conn,
+	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	if (!conn->screenshot)
 		return YUKINO_RESULT_UNSUPPORTED;
 
 	return conn->screenshot(conn, ps, x, y, w, h);
 }
-yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+yukino_result_t yukino_screenshot_resolution(
+	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
 	if (!conn->screenshot_resolution)
 		return YUKINO_RESULT_UNSUPPORTED;
@@ -123,14 +125,16 @@ yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn, yukino_s
 	return conn->screenshot_resolution(conn, s, w, h);
 }
 /* returns YUKINO_RESULT_DONE if there are no bytes left */
-yukino_result_t yukino_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+yukino_result_t yukino_screenshot_read(
+	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
 	if (!conn->screenshot_read)
 		return YUKINO_RESULT_UNSUPPORTED;
 
 	return conn->screenshot_read(conn, s, rgb);
 }
-yukino_result_t yukino_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s)
+yukino_result_t yukino_screenshot_delete(
+	yukino_connection_t *conn, yukino_screenshot_t *s)
 {
 	if (!conn->screenshot_delete)
 		return YUKINO_RESULT_UNSUPPORTED;
@@ -149,7 +153,8 @@ yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
 	uint32_t sw, sh;
 
 	/* Try take, but make sure it actually works */
-	if (conn->take && ((r = conn->take(conn, x, y, w, h, pixel_func, userdata)) >= 0))
+	if (conn->take
+		&& ((r = conn->take(conn, x, y, w, h, pixel_func, userdata)) >= 0))
 		return r;
 
 	/* Emulate it over the new screenshot API */
@@ -247,13 +252,17 @@ yukino_result_t yukino_rect_has_point(
 		&& (y <= (r->y + r->h)));
 }
 
-/* Not exported, it's here so that impls like xcb don't rewrite it (and get it wrong) */
-yukino_result_t yukino_screenshot_fix_resolution(yukino_connection_t *conn, uint32_t *w, uint32_t *h)
+/* Not exported, it's here so that impls like xcb don't rewrite it (and get it
+ * wrong) */
+yukino_result_t yukino_screenshot_fix_resolution(
+	yukino_connection_t *conn, uint32_t *w, uint32_t *h)
 {
 	yukino_result_t r;
 
-	if (*w != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) w = NULL;
-	if (*h != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) h = NULL;
+	if (*w != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+		w = NULL;
+	if (*h != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION)
+		h = NULL;
 
 	/* Nothing to do? */
 	if (!w && !h)
