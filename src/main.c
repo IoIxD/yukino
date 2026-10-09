@@ -60,8 +60,13 @@ static SDL_Surface *sdl_screenshot(
 
 	/* Reel it in */
 	px = sur->pixels;
-	while ((r = yukino_screenshot_read(conn, s, px)) != YUKINO_RESULT_DONE)
-		px += 3;
+	for (y = 0; y < h; y++) {
+		for (x = 0; x < w; x++)
+			if ((r = yukino_screenshot_read(conn, s, px + (x*3))) < 0)
+				goto err;
+		px += sur->pitch;
+	}
+err:
 	yukino_screenshot_delete(conn, s);
 
 	if (r < 0) {
