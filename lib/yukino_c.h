@@ -31,26 +31,6 @@
 # define YUKINO_INLINE static inline
 #endif
 
-/* Pass this value to yukino_screenshot to get a screenshot of the entire
- * desktop */
-#define YUKINO_SCREENSHOT_DESKTOP_RESOLUTION UINT32_C(0xFFFFFFFF)
-
-/* private screenshot API; not currently exported as it isn't implemented
- * across all drivers. but this should be much more extensible in case we
- * ever want to implement e.g. reading floating point RGB values rather
- * than strictly 8-bit RGB. */
-/* This will eventually be renamed to yukino_screenshot once the old API
- * is no more */
-yukino_result_t yukino_screenshot_create(yukino_connection_t *conn,
-	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
-yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn,
-	yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
-/* returns YUKINO_RESULT_DONE if there are no bytes left */
-yukino_result_t yukino_screenshot_read(
-	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
-yukino_result_t yukino_screenshot_delete(
-	yukino_connection_t *conn, yukino_screenshot_t *s);
-
 /* Image reader, converts an image pixel-by-pixel into 8-bit RGB. */
 struct yukino_image {
 	/* the memory buffer in question: */

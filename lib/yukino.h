@@ -150,6 +150,22 @@ YUKINO_WRITE(ppm)
 /* ------------------------------------------------------------------------ */
 /* take a screenshot */
 
+/* Magic width/height value, passed into either the w or h of
+ * yukino_screenshot_create to just get a screenshot of the desktop. */
+#define YUKINO_SCREENSHOT_DESKTOP_RESOLUTION UINT32_C(0xFFFFFFFF)
+
+YUKINO_EXTERN yukino_result_t yukino_screenshot_create(
+	yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y,
+	uint32_t w, uint32_t h);
+YUKINO_EXTERN yukino_result_t yukino_screenshot_resolution(
+	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w,
+	uint32_t *h);
+/* returns YUKINO_RESULT_DONE if there are no bytes left */
+YUKINO_EXTERN yukino_result_t yukino_screenshot_read(
+	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
+YUKINO_EXTERN yukino_result_t yukino_screenshot_delete(
+	yukino_connection_t *conn, yukino_screenshot_t *s);
+
 YUKINO_EXTERN yukino_result_t yukino_screenshot(yukino_connection_t *conn,
 	uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 	yukino_pixel_proc_t pixel_func, void *userdata);

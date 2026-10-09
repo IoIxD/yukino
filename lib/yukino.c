@@ -19,6 +19,8 @@
 #include "yukino.h"
 #include "yukino_c.h"
 
+#include <string.h>
+
 yukino_result_t yukino_connect(yukino_connection_t **pconn)
 {
 	if (!pconn)
@@ -108,41 +110,93 @@ yukino_result_t yukino_window_decorated_position(
 		: YUKINO_RESULT_UNSUPPORTED;
 }
 
+#define BACKEND_HAS_SCREENSHOT(x) \
+	((x)->screenshot && (x)->screenshot_resolution && (x)->screenshot_read \
+		&& (x)->screenshot_delete)
+
+/* Fallback screenshot impl, stores everything as RGB888 */
+struct yukino_screenshot {
+	struct yukino_image img;
+
+	/* Used in the callback */
+	unsigned char *ptr; /* data + ((y * w + x) * 3) */
+	unsigned char *end; /* data + ((w * h) * 3 */
+
+	/* Data allocated for the image itself */
+	unsigned char data[];
+};
+
+static yukino_result_t take_cb(void *s_, const unsigned char rgb[3])
+{
+	yukino_screenshot_t *s = s_;
+
+	if (s->ptr >= s->end)
+		return YUKINO_RESULT_FILE_ERROR;
+
+	memcpy(s->ptr, rgb, 3);
+	s->ptr += 3;
+	return YUKINO_RESULT_OK;
+}
+
 yukino_result_t yukino_screenshot_create(yukino_connection_t *conn,
 	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-	if (!conn->screenshot)
-		return YUKINO_RESULT_UNSUPPORTED;
+	yukino_screenshot_t *s;
+	yukino_result_t r;
 
-	return conn->screenshot(conn, ps, x, y, w, h);
+	if (BACKEND_HAS_SCREENSHOT(conn))
+		return conn->screenshot(conn, ps, x, y, w, h);
+
+	s = malloc(sizeof(*s) + (w * h * 3));
+	if (!s)
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+
+	/* Pointless to defer this to read(), there would be no speed gain. */
+	if ((r = yukino_screenshot_fix_resolution(conn, &w, &h)) < 0)
+		return r;
+
+	/* Init data ptrs */
+	s->ptr = s->data;
+	s->end = s->data + (w * h * 3);
+	if ((r = yukino_screenshot(conn, x, y, w, h, take_cb, s)) < 0)
+		return r;
+
+	if ((r = yukino_image(&s->img, s->data, 24, 0xFF0000, 0x00FF00, 0x0000FF,
+			 YUKINO_IMAGE_ENDIAN_BIG, w * 4, 0, 0, w, h))
+		< 0)
+		return r;
+
+	*ps = s;
+	return YUKINO_RESULT_OK;
 }
 yukino_result_t yukino_screenshot_resolution(
 	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
-	if (!conn->screenshot_resolution)
-		return YUKINO_RESULT_UNSUPPORTED;
+	if (BACKEND_HAS_SCREENSHOT(conn))
+		return conn->screenshot_resolution(conn, s, w, h);
 
-	return conn->screenshot_resolution(conn, s, w, h);
+	return yukino_image_resolution(&s->img, w, h);
 }
+
 /* returns YUKINO_RESULT_DONE if there are no bytes left */
 yukino_result_t yukino_screenshot_read(
 	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
-	if (!conn->screenshot_read)
-		return YUKINO_RESULT_UNSUPPORTED;
+	if (BACKEND_HAS_SCREENSHOT(conn))
+		return conn->screenshot_read(conn, s, rgb);
 
-	return conn->screenshot_read(conn, s, rgb);
+	return yukino_image_read(&s->img, rgb);
 }
+
 yukino_result_t yukino_screenshot_delete(
 	yukino_connection_t *conn, yukino_screenshot_t *s)
 {
-	if (!conn->screenshot_delete)
-		return YUKINO_RESULT_UNSUPPORTED;
+	if (BACKEND_HAS_SCREENSHOT(conn))
+		return conn->screenshot_delete(conn, s);
 
-	return conn->screenshot_delete(conn, s);
+	free(s);
+	return YUKINO_RESULT_OK;
 }
-
-#include <stdio.h>
 
 yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
 	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
