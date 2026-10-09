@@ -55,7 +55,7 @@ BreakBeforeBinaryOperators: All
 
 InsertNewlineAtEOF: true
 
-# IndentGotoLabels: NoIndent
+IndentGotoLabels: false
 
 IndentWrappedFunctionNames: false
 
