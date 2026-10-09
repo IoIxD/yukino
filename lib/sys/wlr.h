@@ -28,20 +28,20 @@
 /* God bless anyone who has the wlr screenshot protocol and not dbus shit */
 
 struct yukino_wlr {
-  struct yukino_wayland *wl;
-  struct zwlr_screencopy_manager_v1 *screencopy;
-  struct yukino_wlr_display **outputs;
-  int num_outputs;
-  struct wl_shm *shm;
-  struct zxdg_output_manager_v1 * om;
+	struct yukino_wayland *wl;
+	struct zwlr_screencopy_manager_v1 *screencopy;
+	struct yukino_wlr_display **outputs;
+	int num_outputs;
+	struct wl_shm *shm;
+	struct zxdg_output_manager_v1 *om;
 };
 
 yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
-                                uint32_t w, uint32_t h,
-                                yukino_pixel_proc_t pixel_func, void *userdata);
-yukino_result_t yukino_wlr_init(struct yukino_wlr *wlr,
-                                struct yukino_wayland *wl);
+	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
+yukino_result_t yukino_wlr_init(
+	struct yukino_wlr *wlr, struct yukino_wayland *wl);
 void yukino_wlr_quit(struct yukino_wlr *wlr, struct yukino_wayland *wl);
-yukino_result_t yukino_wlr_display_resolution(struct yukino_wlr *conn, uint32_t *w, uint32_t *h);
+yukino_result_t yukino_wlr_display_resolution(
+	struct yukino_wlr *conn, uint32_t *w, uint32_t *h);
 
 #endif
