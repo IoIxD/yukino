@@ -245,19 +245,19 @@ yukino_result_t yukino_wlr_take(struct yukino_wlr *conn, uint32_t x, uint32_t y,
 				if (mx > out->x && mx < out->x + out->mw && my > out->y
 					&& my < out->y + out->mh) {
 					monitor_found = 1;
-					int res
+					yukino_result_t res
 						= pixel_func(userdata, (uint8_t *)out->pxl + (mx * 4));
 					if (res < 0) {
-						return YUKINO_RESULT_UNSUPPORTED;
+						return res;
 					}
 					break;
 				}
 			}
 			if (monitor_found != 1) {
-				uint8_t dummy[16] = {0};
-				int res = pixel_func(userdata, dummy);
+				static uint8_t dummy[3] = {0};
+				yukino_result_t res = pixel_func(userdata, dummy);
 				if (res < 0) {
-					return YUKINO_RESULT_UNSUPPORTED;
+					return res;
 				}
 			}
 		}
