@@ -245,3 +245,22 @@ yukino_result_t yukino_rect_has_point(
 	return ((x >= r->x) && (x <= (r->x + r->w)) && (y >= r->y)
 		&& (y <= (r->y + r->h)));
 }
+
+/* Not exported, it's here so that impls like xcb don't rewrite it (and get it wrong) */
+yukino_result_t yukino_screenshot_fix_resolution(yukino_connection_t *conn, uint32_t *w, uint32_t *h)
+{
+	yukino_result_t r;
+
+	if (*w != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) w = NULL;
+	if (*h != YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) h = NULL;
+
+	/* Nothing to do? */
+	if (!w && !h)
+		return YUKINO_RESULT_OK;
+
+	/* Overwrite with the actual desktop resolution */
+	if ((r = yukino_display_resolution(conn, w, h)) < 0)
+		return r;
+
+	return YUKINO_RESULT_OK;
+}

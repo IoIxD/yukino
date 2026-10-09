@@ -433,11 +433,9 @@ static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_s
 
 	win = conn->conn_data.default_display_screen->root;
 
-	if (w == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION || h == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) {
-		/* Overwrite with the actual desktop resolution */
-		if ((r = yukino_xcb_display_resolution(conn, &w, &h)) < 0)
-			return r;
-	}
+	/* wew */
+	if ((r = yukino_screenshot_fix_resolution(conn, &w, &h)) < 0)
+		return r;
 
 	s = malloc(sizeof(*s));
 	if (!s)

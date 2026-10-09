@@ -180,4 +180,6 @@ yukino_result_t yukino_uri_get_file_path(const char *p, char **res);
  * Currently hardcoded for /dev/urandom and has no fallback */
 yukino_result_t yukino_random(void *x, size_t n);
 
+yukino_result_t yukino_screenshot_fix_resolution(yukino_connection_t *conn, uint32_t *w, uint32_t *h);
+
 #endif /* YUKINO_C_H_ */
