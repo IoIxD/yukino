@@ -481,13 +481,14 @@ yukino_result_t yukino_kwin_init(struct yukino_kwin *kwi)
 	kwi->conn = dbus_bus_get(DBUS_BUS_SESSION, NULL);
 	if (!kwi->conn)
 		return YUKINO_RESULT_UNSUPPORTED;
+	dbus_connection_set_exit_on_disconnect(kwi->conn, FALSE);
 
 	/* Ok, now our script is running and we have to set up our shit */
 	if (!dbus_bus_request_name(kwi->conn, "us.tflc.yukino_kwin", 0, &err))
 		return YUKINO_RESULT_UNSUPPORTED;
 
 	dbus_bus_add_match(kwi->conn, match_rule, NULL);
-	/* Meh */
+	/* STFU */
 	dbus_connection_read_write_dispatch(kwi->conn, -1);
 
 	return YUKINO_RESULT_OK;

@@ -32,10 +32,13 @@ struct yukino_xdg {
 };
 
 /* This works, but it's fairly inefficient as it takes a screenshot ;). */
-yukino_result_t yukino_xdg_display_resolution(
-	struct yukino_xdg *wl, uint32_t *w, uint32_t *h);
-yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
-	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata);
+yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *xdg, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+yukino_result_t yukino_xdg_screenshot_resolution(struct yukino_xdg *conn,
+						 yukino_screenshot_t *s, uint32_t *w, uint32_t *h);
+yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
+					   yukino_screenshot_t *s, unsigned char rgb[3]);
+yukino_result_t yukino_xdg_screenshot_delete(struct yukino_xdg *conn,
+					     yukino_screenshot_t *s);
 yukino_result_t yukino_xdg_init(struct yukino_xdg *xdg);
 void yukino_xdg_quit(struct yukino_xdg *xdg);
 

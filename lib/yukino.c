@@ -148,8 +148,9 @@ yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
 	yukino_result_t r;
 	uint32_t sw, sh;
 
-	if (conn->take)
-		return conn->take(conn, x, y, w, h, pixel_func, userdata);
+	/* Try take, but make sure it actually works */
+	if (conn->take && ((r = conn->take(conn, x, y, w, h, pixel_func, userdata)) >= 0))
+		return r;
 
 	/* Emulate it over the new screenshot API */
 	if ((r = yukino_screenshot_create(conn, &s, x, y, w, h)) < 0)

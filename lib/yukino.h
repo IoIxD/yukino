@@ -168,4 +168,7 @@ YUKINO_SCREENSHOT(bmp)
 YUKINO_EXTERN yukino_result_t yukino_rect_has_point(
 	const yukino_rect_t *r, int32_t x, int32_t y);
 
+/* moving this here */
+typedef struct yukino_screenshot yukino_screenshot_t;
+
 #endif

@@ -85,15 +85,7 @@ static yukino_result_t process_image_uri(const char *uri, uint32_t rx,
 	uint32_t x, y;
 
 	{
-		char *path;
 
-		r = yukino_uri_get_file_path(uri, &path);
-		if (r < 0)
-			return r;
-
-		full_img = stbi_load(path, &w, &h, &channels, 4);
-		unlink(path);
-		free(path);
 	}
 
 	if (!full_img)
@@ -358,120 +350,167 @@ static yukino_result_t get_uri(struct yukino_xdg *conn, char **puri)
 	return r;
 }
 
-static yukino_result_t yukino_xdg_take_impl_impl(struct yukino_xdg *conn,
-	uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-	yukino_result_t (*cb)(const char *, void *), void *userdata,
-	const char *token, uint32_t target)
-{
+/* XDG variant of screenshot struct
+ * We should have a generic implementation just reads on a membuf */
+struct yukino_screenshot {
 	DBusPendingCall *pending;
-	yukino_result_t r;
-	char *req_path, *uri;
+	char *token; /* Saved in case first call fails */
 
-	/* Avoid possible race by subscribing first
-	 * with a prediction of the path */
-	if (predict_req_path(conn, token, &req_path) >= 0) {
-		subscribe(conn, req_path);
-		free(req_path);
-	}
+	/* Requested coordinates */
+	uint32_t rx, ry, rw, rh;
 
-	r = send_method(conn, token, target, &pending);
-	if (r < 0)
-		return r;
+	/* 'data' is the data. 'ptr' is the current pointer into that data */
+	uint8_t *data, *ptr;
+	int w, h;
 
-	r = receive_message(conn, pending, &req_path);
-	if (r < 0)
-		return r;
+	/* Iterators */
+	int x, y;
+};
 
-	/* This is a no-op if the token prediction was correct */
-	subscribe(conn, req_path);
-	free(req_path);
-
-	/* XXX should this be in get_uri ?? */
-	dbus_connection_flush(conn->conn);
-
-	r = get_uri(conn, &uri);
-	if (r < 0)
-		return r;
-
-	r = cb(uri, userdata);
-	free(uri);
-	if (r < 0)
-		return r;
-
-	return YUKINO_RESULT_OK;
-}
-
-static yukino_result_t yukino_xdg_take_impl(struct yukino_xdg *conn, uint32_t x,
-	uint32_t y, uint32_t w, uint32_t h,
-	yukino_result_t (*cb)(const char *, void *), void *userdata,
-	const char *token)
+yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
+	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	yukino_result_t r;
-
-	r = yukino_xdg_take_impl_impl(
-		conn, x, y, w, h, cb, userdata, token, TARGET_SCREEN);
-	/* Try giving the target value */
-	if (r == YUKINO_RESULT_OK)
-		return YUKINO_RESULT_OK;
-
-	r = yukino_xdg_take_impl_impl(
-		conn, x, y, w, h, cb, userdata, token, TARGET_NONE);
-	/* Try giving the target value */
-	if (r == YUKINO_RESULT_OK)
-		return YUKINO_RESULT_OK;
-
-	return YUKINO_RESULT_UNSUPPORTED;
-}
-
-static yukino_result_t yukino_xdg_take_token_wrapper(struct yukino_xdg *conn,
-	uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-	yukino_result_t (*cb)(const char *, void *), void *userdata)
-{
-	char *token;
-	yukino_result_t r;
+	char *req_path, *uri, *token;
+	yukino_screenshot_t *s;
 
 	token = get_token();
 	if (!token)
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 
-	r = yukino_xdg_take_impl(conn, x, y, w, h, cb, userdata, token);
+	s = calloc(1, sizeof(*s));
+	if (!s) {
+		free(token);
+		return YUKINO_RESULT_OUT_OF_MEMORY;
+	}
 
-	free(token);
+	s->token = token;
 
+	s->rx = x;
+	s->ry = y;
+	s->rw = w;
+	s->rh = h;
+
+	/* Avoid possible race by subscribing first
+	 * with a prediction of the path */
+	if (predict_req_path(conn, s->token, &req_path) >= 0) {
+		subscribe(conn, req_path);
+		free(req_path);
+	}
+
+	r = send_method(conn, s->token, TARGET_SCREEN, &s->pending);
+
+	if (r >= 0) {
+		*ps = s;
+	} else {
+		free(s->token);
+		free(s);
+	}
+
+	/* Error */
 	return r;
 }
 
-yukino_result_t yukino_xdg_take(struct yukino_xdg *conn, uint32_t x, uint32_t y,
-	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata)
+/* Receive the result :) */
+static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
+	yukino_screenshot_t *s)
 {
 	yukino_result_t r;
+	char *uri, *path;
+	int channels;
 
-	struct process_image d;
+	/* Already done? */
+	if (s->data)
+		return YUKINO_RESULT_OK;
 
-	d.x = x;
-	d.y = y;
-	d.w = w;
-	d.h = h;
-	d.pixel_func = pixel_func;
-	d.userdata = userdata;
+	{
+		char *req_path;
 
-	return yukino_xdg_take_token_wrapper(
-		conn, x, y, w, h, process_image_uri_cb, &d);
-}
+		r = receive_message(conn, s->pending, &req_path);
+		if (r < 0) {
+			/* Oops */
+			r = send_method(conn, s->token, TARGET_NONE, &s->pending);
+			if (r < 0)
+				return r;
+			r = receive_message(conn, s->pending, &req_path);
+			if (r < 0)
+				return r;
+		}
 
-yukino_result_t yukino_xdg_display_resolution(
-	struct yukino_xdg *conn, uint32_t *w, uint32_t *h)
-{
-	struct get_resolution d;
-	yukino_result_t r;
+		/* This is a no-op if the token prediction was correct */
+		subscribe(conn, req_path);
+		free(req_path);
+	}
 
-	r = yukino_xdg_take_token_wrapper(conn, 0, 0, 0, 0, get_resolution_cb, &d);
+	dbus_connection_flush(conn->conn);
+
+	/* This is the call that blocks */
+	r = get_uri(conn, &uri);
 	if (r < 0)
 		return r;
 
-	*w = d.w;
-	*h = d.h;
-	printf("xdg %d %d\n", *w, *h);
+	/* Now just get the full path and read it all in */
+	r = yukino_uri_get_file_path(uri, &path);
+	if (r < 0)
+		return r;
+
+	/* don't really care about the channels */
+	s->ptr = s->data = stbi_load(path, &s->w, &s->h, &channels, 4);
+	unlink(path);
+	free(path);
+
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_xdg_screenshot_resolution(struct yukino_xdg *conn,
+	yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+{
+	yukino_result_t r;
+
+	if ((r = yukino_xdg_receive(conn, s)) < 0)
+		return r;
+
+	*w = s->w;
+	*h = s->h;
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
+	yukino_screenshot_t *s, unsigned char rgb[3])
+{
+	yukino_result_t r;
+
+	if ((r = yukino_xdg_receive(conn, s)) < 0)
+		return r;
+
+	if (s->y >= s->h)
+		return YUKINO_RESULT_DONE;
+
+	/* Easy */
+	memcpy(rgb, s->ptr, 3);
+	s->ptr += 4;
+
+	s->x++;
+	if (s->x == s->w) {
+		s->y++;
+		s->x = 0;
+	}
+
+	return YUKINO_RESULT_OK;
+}
+
+yukino_result_t yukino_xdg_screenshot_delete(struct yukino_xdg *conn,
+	yukino_screenshot_t *s)
+{
+	if (s->data) {
+		free(s->data);
+	} else if (s->pending) {
+		/* Dumb */
+		dbus_pending_call_unref(s->pending);
+	}
+
+	free(s->token);
+	free(s);
 
 	return YUKINO_RESULT_OK;
 }
