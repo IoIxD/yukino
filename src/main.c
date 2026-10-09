@@ -97,29 +97,27 @@ static yukino_result_t sdl_take_cb(void *conn, uint32_t x, uint32_t y,
 	uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func, void *userdata)
 {
 	SDL_Surface *sur = conn;
-	uint32_t *pixels;
+	unsigned char *px;
 	uint32_t i, j;
 	yukino_result_t r;
 
 	/* XXX need to make sure width/height are ok */
-	pixels = sur->pixels;
+	px = sur->pixels;
 
 	/* go go go */
-	pixels += x;
-	pixels = (uint32_t *)((char *)pixels + (y * sur->pitch));
+	px += x * 3;
+	px += y * sur->pitch;
 
 	for (i = 0; i < h; i++) {
 		for (j = 0; j < w; j++) {
 			unsigned char rgb[3];
 
-			rgb[2] = pixels[j] >> 16;
-			rgb[1] = pixels[j] >> 8;
-			rgb[0] = pixels[j];
+			memcpy(rgb, px + j * 3, 3);
 
 			if ((r = pixel_func(userdata, rgb)) < 0)
 				return r;
 		}
-		pixels = (uint32_t *)((char *)pixels + sur->pitch);
+		px += sur->pitch;
 	}
 
 	return YUKINO_RESULT_OK;
