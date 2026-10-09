@@ -108,12 +108,81 @@ yukino_result_t yukino_window_decorated_position(
 		: YUKINO_RESULT_UNSUPPORTED;
 }
 
+yukino_result_t yukino_screenshot_create(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+	if (!conn->screenshot)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	return conn->screenshot(conn, ps, x, y, w, h);
+}
+yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+{
+	if (!conn->screenshot_resolution)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	return conn->screenshot_resolution(conn, s, w, h);
+}
+/* returns YUKINO_RESULT_DONE if there are no bytes left */
+yukino_result_t yukino_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+{
+	if (!conn->screenshot_read)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	return conn->screenshot_read(conn, s, rgb);
+}
+yukino_result_t yukino_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s)
+{
+	if (!conn->screenshot_delete)
+		return YUKINO_RESULT_UNSUPPORTED;
+
+	return conn->screenshot_delete(conn, s);
+}
+
+#include <stdio.h>
+
 yukino_result_t yukino_screenshot(yukino_connection_t *conn, uint32_t x,
 	uint32_t y, uint32_t w, uint32_t h, yukino_pixel_proc_t pixel_func,
 	void *userdata)
 {
-	return conn->take ? conn->take(conn, x, y, w, h, pixel_func, userdata)
-					  : YUKINO_RESULT_UNSUPPORTED;
+	yukino_screenshot_t *s;
+	yukino_result_t r;
+	uint32_t sw, sh;
+
+	if (conn->take)
+		return conn->take(conn, x, y, w, h, pixel_func, userdata);
+
+	/* Emulate it over the new screenshot API */
+	if ((r = yukino_screenshot_create(conn, &s, x, y, w, h)) < 0)
+		return r;
+
+	/* Check whether the screenshot is actually what we asked for */
+	if ((r = yukino_screenshot_resolution(conn, s, &sw, &sh)) < 0)
+		goto cleanup;
+
+	/* FIXME we can handle this pretty easily in both scenarios */
+	if (w != sw || h != sh) {
+		r = YUKINO_RESULT_INVALID_PARAM;
+		goto cleanup;
+	}
+
+	for (;;) {
+		unsigned char rgb[3];
+
+		r = yukino_screenshot_read(conn, s, rgb);
+		if (r < 0)
+			goto cleanup;
+		if (r == YUKINO_RESULT_DONE)
+			break;
+		if ((r = pixel_func(userdata, rgb)) < 0)
+			goto cleanup;
+	}
+
+	/* ALL PEOPLE IS GOOD */
+	r = YUKINO_RESULT_OK;
+
+cleanup:
+	yukino_screenshot_delete(conn, s);
+	return r;
 }
 
 YUKINO_INLINE yukino_result_t screenshot_cb(void *conn, uint32_t x, uint32_t y,
