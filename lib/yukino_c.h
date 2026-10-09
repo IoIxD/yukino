@@ -46,6 +46,36 @@ yukino_result_t yukino_screenshot_resolution(yukino_connection_t *conn, yukino_s
 yukino_result_t yukino_screenshot_read(yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3]);
 yukino_result_t yukino_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s);
 
+/* Image reader, converts an image pixel-by-pixel into 8-bit RGB. */
+struct yukino_image {
+	/* the memory buffer in question: */
+	const unsigned char *ptr;
+	uint32_t x, y, w, h;
+
+	uint8_t bpp;
+	/* little/big map directly to x11 constants for no particular reason */
+#define YUKINO_IMAGE_ENDIAN_LITTLE 0
+#define YUKINO_IMAGE_ENDIAN_BIG    1
+#define YUKINO_IMAGE_ENDIAN_NATIVE 2
+	uint32_t endian;
+	size_t stride;
+
+	uint32_t red_mask, green_mask, blue_mask;
+	uint32_t red_shift, green_shift, blue_shift;
+	uint32_t red_div, green_div, blue_div;
+};
+
+/* Creates an iterator over some image data that allows reading 8-bit rgb values,
+ * as well as cropping the data to a specific x,y,w,h */
+yukino_result_t yukino_image(struct yukino_image *m, const void *buf,
+	uint8_t bpp, uint32_t red_mask, uint32_t green_mask, uint32_t blue_mask,
+	uint32_t endian, size_t stride,
+	/* the coordinates etc. to clip to */
+	uint32_t cx, uint32_t cy, uint32_t cw, uint32_t ch);
+/* Reads RGB values */
+yukino_result_t yukino_image_read(struct yukino_image *m, unsigned char rgb[3]);
+yukino_result_t yukino_image_resolution(struct yukino_image *m, uint32_t *w, uint32_t *h);
+
 /* privates */
 struct yukino_connection {
 	/* Disconnect. This is the only function pointer that should never

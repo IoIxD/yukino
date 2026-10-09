@@ -47,6 +47,7 @@ set(SRC_FILES
     adler32.c
     uri.c
     random.c
+    image.c
     fmt/png.c
     fmt/ppm.c
     fmt/bmp.c)
