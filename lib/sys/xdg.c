@@ -376,7 +376,7 @@ static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
 	if (s->ch == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) s->ch = h;
 
 	/* And we're off */
-	yukino_image(&s->mbuf, s->data, 32, 0xFF000000, 0x00FF0000, 0x0000FF00, 2, w * h * 4, s->cx, s->cy, s->cw, s->ch);
+	yukino_image(&s->mbuf, s->data, 32, 0xFF000000, 0x00FF0000, 0x0000FF00, YUKINO_IMAGE_ENDIAN_BIG, w * 4, s->cx, s->cy, s->cw, s->ch);
 
 	return YUKINO_RESULT_OK;
 }
