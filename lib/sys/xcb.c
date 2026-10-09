@@ -407,27 +407,16 @@ struct yukino_screenshot {
 	xcb_get_image_cookie_t cookie;
 	xcb_get_image_reply_t *reply;
 
+	xcb_visualtype_t *vistype;
+
+	struct yukino_image mbuf;
+
 	uint32_t w, h;
-
-	/* Position, used for iterating, this is NOT the position
-	 * on the screen it was taken at. */
-	uint32_t x, y;
-	/* Current pointer into the data */
-	uint8_t *data;
-
-	uint8_t bpp;
-	unsigned int big_endian;
-	size_t stride;
-
-	uint32_t red_mask, green_mask, blue_mask;
-	uint32_t red_shift, green_shift, blue_shift;
-	uint32_t red_div, green_div, blue_div;
 };
 
 static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	yukino_screenshot_t *s;
-	xcb_visualtype_t *vistype;
 	yukino_result_t r;
 	xcb_window_t win;
 
@@ -449,26 +438,11 @@ static yukino_result_t yukino_xcb_screenshot(yukino_connection_t *conn, yukino_s
 	s->w = w;
 	s->h = h;
 
-	/* Initialize iterators */
-	s->x = s->y = 0;
-
-	vistype = find_visual_for_window(conn, win);
-	if (!vistype) {
+	s->vistype = find_visual_for_window(conn, win);
+	if (!s->vistype) {
 		free(s);
 		return YUKINO_RESULT_UNSUPPORTED;
 	}
-
-#define FILL(color) \
-	do { \
-		s->color##_mask = vistype->color##_mask; \
-		s->color##_shift = yukino_ctz32(s->color##_mask); \
-		s->color##_div = s->color##_mask >> s->color##_shift; \
-	} while (0)
-
-	FILL(red);
-	FILL(green);
-	FILL(blue);
-#undef FILL
 
 	*ps = s;
 
@@ -493,9 +467,9 @@ static yukino_result_t yukino_xcb_screenshot_read(yukino_connection_t *conn, yuk
 	if (!s->reply) {
 		const xcb_format_t *fmt;
 		const xcb_setup_t *setup;
+		size_t stride;
 
 		setup = xcb_get_setup(conn->conn_data.conn);
-		s->big_endian = setup->bitmap_format_bit_order;
 
 		s->reply = xcb_get_image_reply(conn->conn_data.conn, s->cookie, NULL);
 		if (!s->reply)
@@ -503,44 +477,23 @@ static yukino_result_t yukino_xcb_screenshot_read(yukino_connection_t *conn, yuk
 
 		fmt = format_by_depth(setup, s->reply->depth);
 
-		s->bpp = fmt->bits_per_pixel;
-
 		/* calculate stride */
-		s->stride = s->w * s->bpp;
-		s->stride = s->stride + (s->stride % fmt->scanline_pad);
-		s->stride >>= 3;
+		stride = s->w * fmt->bits_per_pixel;
+		stride = stride + (stride % fmt->scanline_pad);
+		stride >>= 3;
 
 		/* Any way to tell xcb to give up on a request? :) */
-		if ((s->bpp > 32) || (xcb_get_image_data_length(s->reply) != (s->h * s->stride))) {
+		if ((fmt->bits_per_pixel > 32) || (xcb_get_image_data_length(s->reply) != (s->h * stride))) {
 			free(s->reply);
 			s->reply = NULL;
 			return YUKINO_RESULT_UNSUPPORTED;
 		}
 
-		s->data = xcb_get_image_data(s->reply);
+		/* No need to perform clipping client-side, the server does it for us */
+		yukino_image(&s->mbuf, xcb_get_image_data(s->reply), fmt->bits_per_pixel, s->vistype->red_mask, s->vistype->green_mask, s->vistype->blue_mask, setup->bitmap_format_bit_order, stride, 0, 0, s->w, s->h);
 	}
 
-	/* Don't go past the end */
-	if (s->y >= s->h)
-		return YUKINO_RESULT_DONE;
-
-	pxl = read_pixel(s->data, s->x, s->bpp, s->big_endian);
-
-#define SCALE(x, color) \
-	((((x) & s->color##_mask) >> s->color##_shift) * 255 / s->color##_div)
-	rgb[0] = SCALE(pxl, red);
-	rgb[1] = SCALE(pxl, green);
-	rgb[2] = SCALE(pxl, blue);
-#undef SCALE
-
-	s->x++;
-	if (s->x == s->w) {
-		s->x = 0;
-		s->y++;
-		s->data += s->stride;
-	}
-
-	return YUKINO_RESULT_OK;
+	return yukino_image_read(&s->mbuf, rgb);
 }
 
 static yukino_result_t yukino_xcb_screenshot_delete(yukino_connection_t *conn, yukino_screenshot_t *s)

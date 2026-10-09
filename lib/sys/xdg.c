@@ -34,94 +34,6 @@
 #define TARGET_AREA         4
 #define TARGET_ACTIVEWINDOW 8
 
-struct get_resolution {
-	/* Just getting the w and h */
-	uint32_t w, h;
-};
-
-struct process_image {
-	uint32_t x, y, w, h;
-	yukino_pixel_proc_t pixel_func;
-	void *userdata;
-};
-
-static yukino_result_t get_resolution(
-	const char *uri, uint32_t *pw, uint32_t *ph)
-{
-	char *path;
-	yukino_result_t r;
-	int w, h, ok, channels;
-
-	r = yukino_uri_get_file_path(uri, &path);
-	if (r < 0)
-		return r;
-
-	ok = stbi_info(path, &w, &h, &channels);
-	unlink(path);
-	free(path);
-
-	if (!ok)
-		return YUKINO_RESULT_FILE_ERROR; /* eh */
-
-	*pw = w;
-	*ph = h;
-
-	return YUKINO_RESULT_OK;
-}
-
-static yukino_result_t get_resolution_cb(const char *uri, void *userdata)
-{
-	struct get_resolution *x = userdata;
-	return get_resolution(uri, &x->w, &x->h);
-}
-
-static yukino_result_t process_image_uri(const char *uri, uint32_t rx,
-	uint32_t ry, uint32_t rw, uint32_t rh, yukino_pixel_proc_t pixel_func,
-	void *userdata)
-{
-	uint8_t *full_img;
-	int w = 0, h = 0, channels = 0;
-	yukino_result_t r;
-	uint32_t x, y;
-
-	{
-
-	}
-
-	if (!full_img)
-		return r;
-
-	if ((w < rw) || (h < rh)) {
-		free(full_img);
-		return r;
-	}
-
-	const uint8_t *pxl = full_img;
-	pxl += rx * 4;
-	pxl += ry * w * 4;
-	for (y = 0; y < rh; y++) {
-		for (x = 0; x < rw; x++) {
-			r = pixel_func(userdata, pxl + (x * 4));
-			if (r < 0) {
-				free(full_img);
-				return r;
-			}
-		}
-		pxl += w * 4;
-	}
-
-	free(full_img);
-
-	return YUKINO_RESULT_OK;
-}
-
-static yukino_result_t process_image_uri_cb(const char *uri, void *userdata)
-{
-	struct process_image *x = userdata;
-	return process_image_uri(
-		uri, x->x, x->y, x->w, x->h, x->pixel_func, x->userdata);
-}
-
 static yukino_result_t subscribe(
 	struct yukino_xdg *conn, const char *request_path)
 {
@@ -355,16 +267,11 @@ static yukino_result_t get_uri(struct yukino_xdg *conn, char **puri)
 struct yukino_screenshot {
 	DBusPendingCall *pending;
 	char *token; /* Saved in case first call fails */
+	struct yukino_image mbuf;
 
-	/* Requested coordinates */
-	uint32_t rx, ry, rw, rh;
+	uint32_t cx, cy, cw, ch;
 
-	/* 'data' is the data. 'ptr' is the current pointer into that data */
-	uint8_t *data, *ptr;
-	int w, h;
-
-	/* Iterators */
-	int x, y;
+	uint8_t *data;
 };
 
 yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
@@ -385,11 +292,10 @@ yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
 	}
 
 	s->token = token;
-
-	s->rx = x;
-	s->ry = y;
-	s->rw = w;
-	s->rh = h;
+	s->cx = x;
+	s->cy = y;
+	s->cw = w;
+	s->ch = h;
 
 	/* Avoid possible race by subscribing first
 	 * with a prediction of the path */
@@ -417,22 +323,28 @@ static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
 {
 	yukino_result_t r;
 	char *uri, *path;
-	int channels;
+	int w, h, channels;
 
 	/* Already done? */
 	if (s->data)
 		return YUKINO_RESULT_OK;
+	if (!s->pending)
+		return YUKINO_RESULT_INVALID_PARAM;
 
 	{
 		char *req_path;
+		DBusPendingCall *pending;
 
-		r = receive_message(conn, s->pending, &req_path);
+		/* Make s->pending NULL so we don't do this again */
+		pending = s->pending;
+		s->pending = NULL;
+		r = receive_message(conn, pending, &req_path);
 		if (r < 0) {
 			/* Oops */
-			r = send_method(conn, s->token, TARGET_NONE, &s->pending);
+			r = send_method(conn, s->token, TARGET_NONE, &pending);
 			if (r < 0)
 				return r;
-			r = receive_message(conn, s->pending, &req_path);
+			r = receive_message(conn, pending, &req_path);
 			if (r < 0)
 				return r;
 		}
@@ -455,9 +367,16 @@ static yukino_result_t yukino_xdg_receive(struct yukino_xdg *conn,
 		return r;
 
 	/* don't really care about the channels */
-	s->ptr = s->data = stbi_load(path, &s->w, &s->h, &channels, 4);
+	s->data = stbi_load(path, &w, &h, &channels, 4);
 	unlink(path);
 	free(path);
+
+	/* Set these to the proper values */
+	if (s->cw == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) s->cw = w;
+	if (s->ch == YUKINO_SCREENSHOT_DESKTOP_RESOLUTION) s->ch = h;
+
+	/* And we're off */
+	yukino_image(&s->mbuf, s->data, 32, 0xFF000000, 0x00FF0000, 0x0000FF00, 2, w * h * 4, s->cx, s->cy, s->cw, s->ch);
 
 	return YUKINO_RESULT_OK;
 }
@@ -470,9 +389,7 @@ yukino_result_t yukino_xdg_screenshot_resolution(struct yukino_xdg *conn,
 	if ((r = yukino_xdg_receive(conn, s)) < 0)
 		return r;
 
-	*w = s->w;
-	*h = s->h;
-	return YUKINO_RESULT_OK;
+	return yukino_image_resolution(&s->mbuf, w, h);
 }
 
 yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
@@ -483,20 +400,7 @@ yukino_result_t yukino_xdg_screenshot_read(struct yukino_xdg *conn,
 	if ((r = yukino_xdg_receive(conn, s)) < 0)
 		return r;
 
-	if (s->y >= s->h)
-		return YUKINO_RESULT_DONE;
-
-	/* Easy */
-	memcpy(rgb, s->ptr, 3);
-	s->ptr += 4;
-
-	s->x++;
-	if (s->x == s->w) {
-		s->y++;
-		s->x = 0;
-	}
-
-	return YUKINO_RESULT_OK;
+	return yukino_image_read(&s->mbuf, rgb);
 }
 
 yukino_result_t yukino_xdg_screenshot_delete(struct yukino_xdg *conn,
