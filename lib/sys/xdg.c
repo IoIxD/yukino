@@ -34,8 +34,69 @@
 #define TARGET_AREA         4
 #define TARGET_ACTIVEWINDOW 8
 
+static yukino_result_t register_error_s(yukino_connection_t *conn, const char *name, const char *desc)
+{
+	yukino_result_t r, rr;
+
+	r = yukino_error_register(conn, name, desc, &rr);
+	if (r < 0)
+		return r;
+
+	return rr;
+}
+
+/* This function either returns a registered error code, or something different
+ * if the error registration process itself failed.
+ *
+ * It also frees the error, so you don't have to do that yourself. */
+static yukino_result_t map_dbus_error_to_yukino(yukino_connection_t *conn, DBusError *err)
+{
+	yukino_result_t r;
+
+	/* Ehh, ok */
+	if (!dbus_error_is_set(err))
+		return YUKINO_RESULT_OK;
+
+	r = register_error_s(conn, err->name, err->message);
+	dbus_error_free(err);
+
+	return r;
+}
+
+/* Returns a success error if the message wasn't an error in the first place */
+static yukino_result_t map_dbus_message_error_to_yukino(yukino_connection_t *conn, DBusMessage *msg)
+{
+	const char *name, *desc;
+	DBusError err;
+
+	if (dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_ERROR)
+		return YUKINO_RESULT_OK;
+
+	name = dbus_message_get_error_name(msg);
+	if (!name)
+		return YUKINO_RESULT_OUT_OF_MEMORY; /* I guess? */
+
+	dbus_error_init(&err);
+	if (dbus_message_get_args(msg, &err, DBUS_TYPE_STRING, &desc, DBUS_TYPE_INVALID))
+		return register_error_s(conn, name, desc);
+
+	/* Oops, that failed... try it with the DBusError we just received?? */
+	return map_dbus_error_to_yukino(conn, &err);
+}
+
+/* Like the above but also unrefs the message */
+static yukino_result_t map_dbus_message_error_to_yukino_unref(yukino_connection_t *conn, DBusMessage *msg)
+{
+	yukino_result_t r;
+
+	r = map_dbus_message_error_to_yukino(conn, msg);
+	dbus_message_unref(msg);
+
+	return r;
+}
+
 static yukino_result_t subscribe(
-	struct yukino_xdg *conn, const char *request_path)
+	yukino_connection_t *yconn, struct yukino_xdg *conn, const char *request_path)
 {
 	DBusError error;
 	char *match_rule;
@@ -50,12 +111,9 @@ static yukino_result_t subscribe(
 		return YUKINO_RESULT_OUT_OF_MEMORY;
 	}
 	dbus_bus_add_match(conn->conn, match_rule, &error);
-
 	free(match_rule);
-	r = (dbus_error_is_set(&error)) ? YUKINO_RESULT_UNSUPPORTED
-									: YUKINO_RESULT_OK;
-	dbus_error_free(&error);
-	return r;
+
+	return map_dbus_error_to_yukino(yconn, &error);
 }
 
 static yukino_result_t predict_req_path(
@@ -169,11 +227,12 @@ static char *get_token(void)
 }
 
 static yukino_result_t receive_message(
-	struct yukino_xdg *conn, DBusPendingCall *pending, char **req)
+	yukino_connection_t *conn, DBusPendingCall *pending, char **req)
 {
 	DBusMessage *msg;
 	char *req_path;
 	DBusError error;
+	yukino_result_t r;
 
 	dbus_error_init(&error);
 
@@ -184,16 +243,14 @@ static yukino_result_t receive_message(
 	if (!msg)
 		return YUKINO_RESULT_UNSUPPORTED;
 
-	if (dbus_message_get_type(msg) == DBUS_MESSAGE_TYPE_ERROR) {
-		dbus_message_unref(msg);
-		return YUKINO_RESULT_UNSUPPORTED;
-	}
+	if ((r = map_dbus_message_error_to_yukino_unref(conn, msg)) < 0)
+		return r;
 
 	if (!dbus_message_get_args(
 			msg, &error, DBUS_TYPE_OBJECT_PATH, &req_path, DBUS_TYPE_INVALID)) {
-		dbus_error_free(&error);
+		r = map_dbus_error_to_yukino(conn, &error);
 		dbus_message_unref(msg);
-		return YUKINO_RESULT_UNSUPPORTED;
+		return r;
 	}
 	*req = strdup(req_path);
 	dbus_message_unref(msg);
@@ -274,7 +331,7 @@ struct yukino_screenshot {
 	uint8_t *data;
 };
 
-yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
+yukino_result_t yukino_xdg_screenshot(yukino_connection_t *yconn, struct yukino_xdg *conn,
 	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	yukino_result_t r;
@@ -300,7 +357,7 @@ yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
 	/* Avoid possible race by subscribing first
 	 * with a prediction of the path */
 	if (predict_req_path(conn, s->token, &req_path) >= 0) {
-		subscribe(conn, req_path);
+		subscribe(yconn, conn, req_path);
 		free(req_path);
 	}
 
@@ -319,7 +376,7 @@ yukino_result_t yukino_xdg_screenshot(struct yukino_xdg *conn,
 
 /* Receive the result :) */
 static yukino_result_t yukino_xdg_receive(
-	struct yukino_xdg *conn, yukino_screenshot_t *s)
+	yukino_connection_t *yconn, struct yukino_xdg *conn, yukino_screenshot_t *s)
 {
 	yukino_result_t r;
 	char *uri, *path;
@@ -338,19 +395,19 @@ static yukino_result_t yukino_xdg_receive(
 		/* Make s->pending NULL so we don't do this again */
 		pending = s->pending;
 		s->pending = NULL;
-		r = receive_message(conn, pending, &req_path);
+		r = receive_message(yconn, pending, &req_path);
 		if (r < 0) {
 			/* Oops */
 			r = send_method(conn, s->token, TARGET_NONE, &pending);
 			if (r < 0)
 				return r;
-			r = receive_message(conn, pending, &req_path);
+			r = receive_message(yconn, pending, &req_path);
 			if (r < 0)
 				return r;
 		}
 
 		/* This is a no-op if the token prediction was correct */
-		subscribe(conn, req_path);
+		subscribe(yconn, conn, req_path);
 		free(req_path);
 	}
 
@@ -385,22 +442,22 @@ static yukino_result_t yukino_xdg_receive(
 }
 
 yukino_result_t yukino_xdg_screenshot_resolution(
-	struct yukino_xdg *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
+	yukino_connection_t *yconn, struct yukino_xdg *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
 	yukino_result_t r;
 
-	if ((r = yukino_xdg_receive(conn, s)) < 0)
+	if ((r = yukino_xdg_receive(yconn, conn, s)) < 0)
 		return r;
 
 	return yukino_image_resolution(&s->mbuf, w, h);
 }
 
 yukino_result_t yukino_xdg_screenshot_read(
-	struct yukino_xdg *conn, yukino_screenshot_t *s, unsigned char rgb[3])
+	yukino_connection_t *yconn, struct yukino_xdg *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
 	yukino_result_t r;
 
-	if ((r = yukino_xdg_receive(conn, s)) < 0)
+	if ((r = yukino_xdg_receive(yconn, conn, s)) < 0)
 		return r;
 
 	return yukino_image_read(&s->mbuf, rgb);

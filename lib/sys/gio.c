@@ -148,7 +148,7 @@ yukino_result_t yukino_gio_screenshot(yukino_connection_t *conn,
 	yukino_screenshot_t **ps, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
 	if (conn->conn_data.have_xdg)
-		return yukino_xdg_screenshot(&conn->conn_data.xdg, ps, x, y, w, h);
+		return yukino_xdg_screenshot(conn, &conn->conn_data.xdg, ps, x, y, w, h);
 
 	return YUKINO_RESULT_UNSUPPORTED;
 }
@@ -156,7 +156,7 @@ yukino_result_t yukino_gio_screenshot_resolution(
 	yukino_connection_t *conn, yukino_screenshot_t *s, uint32_t *w, uint32_t *h)
 {
 	if (conn->conn_data.have_xdg)
-		return yukino_xdg_screenshot_resolution(&conn->conn_data.xdg, s, w, h);
+		return yukino_xdg_screenshot_resolution(conn, &conn->conn_data.xdg, s, w, h);
 
 	return YUKINO_RESULT_UNSUPPORTED;
 }
@@ -164,7 +164,7 @@ yukino_result_t yukino_gio_screenshot_read(
 	yukino_connection_t *conn, yukino_screenshot_t *s, unsigned char rgb[3])
 {
 	if (conn->conn_data.have_xdg)
-		return yukino_xdg_screenshot_read(&conn->conn_data.xdg, s, rgb);
+		return yukino_xdg_screenshot_read(conn, &conn->conn_data.xdg, s, rgb);
 
 	return YUKINO_RESULT_UNSUPPORTED;
 }
